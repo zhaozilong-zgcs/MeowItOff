@@ -1,8 +1,11 @@
+class_name GameManager
 extends Node2D
 
 const GRID_ORIGIN := Vector2(40, 150)
 const MOVE_COST := 1
 const CATCH_COST := 3
+
+signal return_requested(return_mode: StringName)
 
 var grid: GridSystem
 var pathfinder: PathfindingSystem
@@ -26,13 +29,30 @@ var selected_item_id: StringName = &""
 var remaining_turns: int = 0
 var cat_stun_turns: int = 0
 var game_finished: bool = false
+var _nodes_created: bool = false
+var _active_return_mode: StringName = &"menu"
+var _active_level: LevelData
 
 
 func _ready() -> void:
+	_ensure_game_nodes()
+
+
+func start_level(next_level: LevelData, return_mode: StringName = &"menu") -> void:
+	_ensure_game_nodes()
+	_active_return_mode = return_mode
+	_active_level = _duplicate_level(next_level)
+	_load_level(_active_level)
+
+
+func _ensure_game_nodes() -> void:
+	if _nodes_created:
+		return
+
 	_ensure_input_actions()
 	_create_item_defs()
 	_create_scene_nodes()
-	_load_level(_create_default_level())
+	_nodes_created = true
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -85,6 +105,7 @@ func _create_scene_nodes() -> void:
 	ui.item_selected.connect(_select_item)
 	ui.cancel_requested.connect(_cancel_selection)
 	ui.restart_requested.connect(_restart)
+	ui.back_requested.connect(_on_back_requested)
 	add_child(ui)
 
 
@@ -130,28 +151,7 @@ func _load_level(next_level: LevelData) -> void:
 
 
 func _create_default_level() -> LevelData:
-	var default_level := LevelData.new()
-	default_level.board_size = Vector2i(10, 10)
-	default_level.player_start = Vector2i(1, 8)
-	default_level.cat_start = Vector2i(4, 2)
-	default_level.button_pos = Vector2i(9, 1)
-	default_level.delay_turns = 18
-	default_level.walls = [
-		Vector2i(3, 3),
-		Vector2i(4, 3),
-		Vector2i(5, 3),
-		Vector2i(6, 4),
-		Vector2i(6, 5),
-		Vector2i(2, 6),
-		Vector2i(3, 6),
-	]
-	default_level.items = [
-		{"id": &"wall", "position": Vector2i(1, 7), "count": 2},
-		{"id": &"toy", "position": Vector2i(2, 8), "count": 1},
-		{"id": &"trap", "position": Vector2i(5, 8), "count": 1},
-		{"id": &"net", "position": Vector2i(7, 7), "count": 1},
-	]
-	return default_level
+	return LevelFactory.create_tutorial_level()
 
 
 func _create_item_defs() -> void:
@@ -375,7 +375,14 @@ func _finish_game(won: bool) -> void:
 
 
 func _restart() -> void:
-	_load_level(_create_default_level())
+	if _active_level:
+		_load_level(_duplicate_level(_active_level))
+	else:
+		_load_level(_create_default_level())
+
+
+func _on_back_requested() -> void:
+	return_requested.emit(_active_return_mode)
 
 
 func _cancel_selection() -> void:
@@ -513,3 +520,16 @@ func _add_key_action(action_name: StringName, keycode: Key) -> void:
 			return
 
 	InputMap.action_add_event(action_name, event)
+
+
+func _duplicate_level(source: LevelData) -> LevelData:
+	var copy := LevelData.new()
+	copy.level_name = source.level_name
+	copy.board_size = source.board_size
+	copy.player_start = source.player_start
+	copy.cat_start = source.cat_start
+	copy.button_pos = source.button_pos
+	copy.delay_turns = source.delay_turns
+	copy.walls = source.walls.duplicate()
+	copy.items = source.items.duplicate(true)
+	return copy

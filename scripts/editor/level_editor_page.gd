@@ -1,0 +1,397 @@
+class_name LevelEditorPage
+extends Node2D
+
+signal back_requested
+signal preview_requested(level: LevelData)
+
+const GRID_ORIGIN := Vector2(40, 150)
+
+var grid: GridSystem
+var token_layer: Node2D
+var unit_layer: Node2D
+var player_unit: TacticalUnit
+var cat_unit: TacticalUnit
+var level: LevelData
+var selected_tool: StringName = &"wall"
+var status_label: Label
+var delay_spin: SpinBox
+var export_dialog: FileDialog
+var item_defs: Dictionary = {}
+var token_nodes: Array[Node] = []
+
+
+func _ready() -> void:
+	_create_item_defs()
+	level = LevelFactory.create_blank_level()
+	_build_board()
+	_build_ui()
+	_redraw_level()
+
+
+func set_level(next_level: LevelData) -> void:
+	level = next_level
+	if grid:
+		_redraw_level()
+	if delay_spin:
+		delay_spin.value = level.delay_turns
+
+
+func get_current_level() -> LevelData:
+	level.delay_turns = int(delay_spin.value) if delay_spin else level.delay_turns
+	return _duplicate_level(level)
+
+
+func _build_board() -> void:
+	grid = GridSystem.new()
+	grid.position = GRID_ORIGIN
+	grid.cell_selected.connect(_on_cell_selected)
+	add_child(grid)
+
+	token_layer = Node2D.new()
+	token_layer.position = GRID_ORIGIN
+	add_child(token_layer)
+
+	unit_layer = Node2D.new()
+	unit_layer.position = GRID_ORIGIN
+	add_child(unit_layer)
+
+	player_unit = TacticalUnit.new()
+	player_unit.configure(&"player", level.player_start, grid)
+	unit_layer.add_child(player_unit)
+
+	cat_unit = TacticalUnit.new()
+	cat_unit.configure(&"cat", level.cat_start, grid)
+	unit_layer.add_child(cat_unit)
+
+
+func _build_ui() -> void:
+	var layer := CanvasLayer.new()
+	add_child(layer)
+
+	var root := Control.new()
+	root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	layer.add_child(root)
+
+	var top_panel := PanelContainer.new()
+	top_panel.position = Vector2(20, 18)
+	top_panel.custom_minimum_size = Vector2(680, 112)
+	root.add_child(top_panel)
+
+	var top_column := VBoxContainer.new()
+	top_column.add_theme_constant_override("separation", 8)
+	top_panel.add_child(top_column)
+
+	var title := Label.new()
+	title.text = "关卡编辑器"
+	title.add_theme_font_size_override("font_size", 24)
+	top_column.add_child(title)
+
+	var action_row := HBoxContainer.new()
+	action_row.add_theme_constant_override("separation", 8)
+	top_column.add_child(action_row)
+
+	action_row.add_child(_make_button("预览试玩", _on_preview_pressed, Vector2(150, 42)))
+	action_row.add_child(_make_button("导出 JSON", _on_export_pressed, Vector2(150, 42)))
+	action_row.add_child(_make_button("清空关卡", _on_clear_pressed, Vector2(150, 42)))
+	action_row.add_child(_make_button("返回入口", _on_back_pressed, Vector2(150, 42)))
+
+	var tool_panel := PanelContainer.new()
+	tool_panel.position = Vector2(20, 810)
+	tool_panel.custom_minimum_size = Vector2(680, 190)
+	root.add_child(tool_panel)
+
+	var tool_column := VBoxContainer.new()
+	tool_column.add_theme_constant_override("separation", 8)
+	tool_panel.add_child(tool_column)
+
+	var tool_row := HBoxContainer.new()
+	tool_row.add_theme_constant_override("separation", 6)
+	tool_column.add_child(tool_row)
+
+	var tools := [
+		{"id": &"wall", "label": "墙"},
+		{"id": &"toy", "label": "玩具"},
+		{"id": &"trap", "label": "陷阱"},
+		{"id": &"net", "label": "捕捉网"},
+		{"id": &"button", "label": "按钮"},
+		{"id": &"cat", "label": "猫咪"},
+		{"id": &"player", "label": "玩家"},
+		{"id": &"eraser", "label": "橡皮"},
+	]
+	for tool in tools:
+		var tool_button := _make_button(str(tool["label"]), _select_tool.bind(tool["id"] as StringName), Vector2(78, 44))
+		tool_row.add_child(tool_button)
+
+	var setting_row := HBoxContainer.new()
+	setting_row.add_theme_constant_override("separation", 10)
+	tool_column.add_child(setting_row)
+
+	var delay_label := Label.new()
+	delay_label.text = "剩余拖延回合"
+	delay_label.custom_minimum_size = Vector2(150, 36)
+	delay_label.add_theme_font_size_override("font_size", 18)
+	setting_row.add_child(delay_label)
+
+	delay_spin = SpinBox.new()
+	delay_spin.min_value = 1
+	delay_spin.max_value = 99
+	delay_spin.step = 1
+	delay_spin.value = level.delay_turns
+	delay_spin.custom_minimum_size = Vector2(130, 42)
+	delay_spin.value_changed.connect(_on_delay_changed)
+	setting_row.add_child(delay_spin)
+
+	status_label = Label.new()
+	status_label.text = "当前工具：墙。点击棋盘放置。"
+	status_label.custom_minimum_size = Vector2(640, 44)
+	status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	status_label.add_theme_font_size_override("font_size", 17)
+	tool_column.add_child(status_label)
+
+	export_dialog = FileDialog.new()
+	export_dialog.file_mode = FileDialog.FILE_MODE_SAVE_FILE
+	export_dialog.access = FileDialog.ACCESS_FILESYSTEM
+	export_dialog.filters = PackedStringArray(["*.json ; JSON 关卡"])
+	export_dialog.title = "导出关卡 JSON"
+	export_dialog.size = Vector2i(680, 720)
+	export_dialog.file_selected.connect(_on_export_file_selected)
+	root.add_child(export_dialog)
+
+
+func _on_cell_selected(cell: Vector2i) -> void:
+	match selected_tool:
+		&"wall":
+			_place_wall(cell)
+		&"toy", &"trap", &"net":
+			_place_item(cell, selected_tool)
+		&"button":
+			_move_button(cell)
+		&"cat":
+			_move_cat(cell)
+		&"player":
+			_move_player(cell)
+		&"eraser":
+			_erase_cell(cell)
+
+	_redraw_level()
+
+
+func _place_wall(cell: Vector2i) -> void:
+	if _is_core_cell(cell):
+		_set_status("墙不能放在玩家、猫咪或按钮上。")
+		return
+
+	_remove_item_at(cell)
+	if not level.walls.has(cell):
+		level.walls.append(cell)
+	_set_status("已放置墙：%s" % str(cell))
+
+
+func _place_item(cell: Vector2i, item_id: StringName) -> void:
+	if _is_core_cell(cell) or level.walls.has(cell):
+		_set_status("道具不能和墙、玩家、猫咪或按钮重叠。")
+		return
+
+	_remove_item_at(cell)
+	level.items.append({"id": item_id, "position": cell, "count": 1})
+	_set_status("已放置%s：%s" % [_tool_name(item_id), str(cell)])
+
+
+func _move_button(cell: Vector2i) -> void:
+	if cell == level.player_start or cell == level.cat_start:
+		_set_status("按钮不能和玩家或猫咪重叠。")
+		return
+
+	_clear_cell_for_core_move(cell)
+	level.button_pos = cell
+	_set_status("按钮移动到：%s" % str(cell))
+
+
+func _move_cat(cell: Vector2i) -> void:
+	if cell == level.player_start or cell == level.button_pos:
+		_set_status("猫咪不能和玩家或按钮重叠。")
+		return
+
+	_clear_cell_for_core_move(cell)
+	level.cat_start = cell
+	_set_status("猫咪移动到：%s" % str(cell))
+
+
+func _move_player(cell: Vector2i) -> void:
+	if cell == level.cat_start or cell == level.button_pos:
+		_set_status("玩家不能和猫咪或按钮重叠。")
+		return
+
+	_clear_cell_for_core_move(cell)
+	level.player_start = cell
+	_set_status("玩家移动到：%s" % str(cell))
+
+
+func _erase_cell(cell: Vector2i) -> void:
+	level.walls.erase(cell)
+	_remove_item_at(cell)
+	_set_status("已擦除墙或道具：%s" % str(cell))
+
+
+func _redraw_level() -> void:
+	grid.setup(level.board_size, level.button_pos)
+	for node in token_nodes:
+		node.queue_free()
+	token_nodes.clear()
+
+	for wall_cell in level.walls:
+		grid.set_blocked(wall_cell, true)
+		_add_token(wall_cell, item_defs[&"wall"] as ItemData)
+
+	for item_entry in level.items:
+		var item_id := item_entry.get("id", &"toy") as StringName
+		var item_cell := item_entry.get("position", Vector2i.ZERO) as Vector2i
+		_add_token(item_cell, item_defs[item_id] as ItemData)
+
+	player_unit.set_grid_position(level.player_start, grid)
+	cat_unit.set_grid_position(level.cat_start, grid)
+
+
+func _add_token(cell: Vector2i, item: ItemData) -> void:
+	var token := BoardToken.new()
+	token.configure(item.id, item.short_label, item.color, cell, grid)
+	token_layer.add_child(token)
+	token_nodes.append(token)
+
+
+func _select_tool(tool_id: StringName) -> void:
+	selected_tool = tool_id
+	_set_status("当前工具：%s。点击棋盘放置或移动。" % _tool_name(tool_id))
+
+
+func _on_delay_changed(value: float) -> void:
+	level.delay_turns = int(value)
+	_set_status("剩余拖延回合设置为 %d。" % level.delay_turns)
+
+
+func _on_preview_pressed() -> void:
+	level.delay_turns = int(delay_spin.value)
+	var validation := LevelCodec.validate_level(level)
+	if not validation["ok"]:
+		_set_status(validation["error"])
+		return
+
+	preview_requested.emit(get_current_level())
+
+
+func _on_export_pressed() -> void:
+	level.delay_turns = int(delay_spin.value)
+	var validation := LevelCodec.validate_level(level)
+	if not validation["ok"]:
+		_set_status(validation["error"])
+		return
+
+	export_dialog.current_file = "%s.json" % level.level_name
+	export_dialog.popup_centered()
+
+
+func _on_export_file_selected(path: String) -> void:
+	if not path.to_lower().ends_with(".json"):
+		path += ".json"
+
+	var json_text := LevelCodec.level_to_json(get_current_level())
+	var file := FileAccess.open(path, FileAccess.WRITE)
+	if file == null:
+		_set_status("导出失败：无法写入文件。")
+		return
+
+	file.store_string(json_text)
+	file.close()
+	_set_status("已导出：%s" % path)
+
+
+func _on_clear_pressed() -> void:
+	level = LevelFactory.create_blank_level()
+	delay_spin.value = level.delay_turns
+	_redraw_level()
+	_set_status("已清空为默认空白关卡。")
+
+
+func _on_back_pressed() -> void:
+	back_requested.emit()
+
+
+func _make_button(text: String, callback: Callable, size: Vector2) -> Button:
+	var button := Button.new()
+	button.text = text
+	button.custom_minimum_size = size
+	button.pressed.connect(callback)
+	return button
+
+
+func _create_item_defs() -> void:
+	item_defs[&"wall"] = _make_item(&"wall", "墙", "墙", Color(0.45, 0.24, 0.24))
+	item_defs[&"toy"] = _make_item(&"toy", "玩具", "玩", Color(0.97, 0.76, 0.16))
+	item_defs[&"trap"] = _make_item(&"trap", "陷阱", "陷", Color(0.08, 0.75, 0.78))
+	item_defs[&"net"] = _make_item(&"net", "捕捉网", "网", Color(0.73, 0.92, 0.86))
+
+
+func _make_item(id: StringName, display_name: String, short_label: String, color: Color) -> ItemData:
+	var item := ItemData.new()
+	item.id = id
+	item.display_name = display_name
+	item.short_label = short_label
+	item.color = color
+	return item
+
+
+func _set_status(message: String) -> void:
+	if status_label:
+		status_label.text = message
+
+
+func _tool_name(tool_id: StringName) -> String:
+	match tool_id:
+		&"wall":
+			return "墙"
+		&"toy":
+			return "玩具"
+		&"trap":
+			return "陷阱"
+		&"net":
+			return "捕捉网"
+		&"button":
+			return "按钮"
+		&"cat":
+			return "猫咪"
+		&"player":
+			return "玩家"
+		&"eraser":
+			return "橡皮"
+		_:
+			return "未知"
+
+
+func _is_core_cell(cell: Vector2i) -> bool:
+	return cell == level.player_start or cell == level.cat_start or cell == level.button_pos
+
+
+func _clear_cell_for_core_move(cell: Vector2i) -> void:
+	level.walls.erase(cell)
+	_remove_item_at(cell)
+
+
+func _remove_item_at(cell: Vector2i) -> void:
+	for index in range(level.items.size() - 1, -1, -1):
+		var entry := level.items[index] as Dictionary
+		if (entry.get("position", Vector2i.ZERO) as Vector2i) == cell:
+			level.items.remove_at(index)
+
+
+func _duplicate_level(source: LevelData) -> LevelData:
+	var copy := LevelData.new()
+	copy.level_name = source.level_name
+	copy.board_size = source.board_size
+	copy.player_start = source.player_start
+	copy.cat_start = source.cat_start
+	copy.button_pos = source.button_pos
+	copy.delay_turns = source.delay_turns
+	copy.walls = source.walls.duplicate()
+	copy.items = source.items.duplicate(true)
+	return copy

@@ -6,6 +6,7 @@ signal pickup_requested
 signal item_selected(id: StringName)
 signal cancel_requested
 signal restart_requested
+signal back_requested
 
 var _ap_label: Label
 var _turn_label: Label
@@ -68,6 +69,12 @@ func build(item_defs: Dictionary) -> void:
 	_cancel_button.custom_minimum_size = Vector2(150, 42)
 	_cancel_button.pressed.connect(_on_cancel_button_pressed)
 	action_row.add_child(_cancel_button)
+
+	var back_button := Button.new()
+	back_button.text = "返回"
+	back_button.custom_minimum_size = Vector2(150, 42)
+	back_button.pressed.connect(_on_back_button_pressed)
+	action_row.add_child(back_button)
 
 	_inventory_box = HBoxContainer.new()
 	_inventory_box.position = Vector2(20, 810)
@@ -187,3 +194,7 @@ func _on_cancel_button_pressed() -> void:
 
 func _on_restart_button_pressed() -> void:
 	restart_requested.emit()
+
+
+func _on_back_button_pressed() -> void:
+	back_requested.emit()

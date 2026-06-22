@@ -1,6 +1,6 @@
 [gd_scene load_steps=2 format=3]
 
-[ext_resource type="Script" path="res://scripts/game_manager.gd" id="1_game_manager"]
+[ext_resource type="Script" path="res://scripts/app_controller.gd" id="1_app_controller"]
 
 [node name="Main" type="Node2D"]
-script = ExtResource("1_game_manager")
+script = ExtResource("1_app_controller")
