@@ -44,11 +44,14 @@ func set_blocked(cell: Vector2i, blocked: bool) -> void:
 	queue_redraw()
 
 
-func set_highlights(cells: Array[Vector2i], color: Color) -> void:
+func set_highlights(cells: Array[Vector2i], color: Color, style: StringName = &"fill") -> void:
 	highlights.clear()
 	for cell in cells:
 		if is_inside(cell):
-			highlights[cell] = color
+			highlights[cell] = {
+				"color": color,
+				"style": style,
+			}
 	queue_redraw()
 
 
@@ -85,17 +88,23 @@ func _unhandled_input(event: InputEvent) -> void:
 
 func _draw() -> void:
 	var board_pixel_size := Vector2(board_size.x, board_size.y) * float(cell_size)
-	draw_rect(Rect2(Vector2.ZERO, board_pixel_size), Color(0.38, 0.70, 0.65))
+	draw_rect(Rect2(Vector2.ZERO, board_pixel_size), Color(0.05, 0.05, 0.05))
 
 	for y in board_size.y:
 		for x in board_size.x:
 			var cell := Vector2i(x, y)
 			var rect := Rect2(Vector2(x, y) * float(cell_size), Vector2.ONE * float(cell_size))
-			var base_color := Color(0.97, 0.88, 0.74) if (x + y) % 2 == 0 else Color(0.42, 0.75, 0.70)
+			var base_color := Color(0.96, 0.96, 0.92) if (x + y) % 2 == 0 else Color(0.08, 0.08, 0.08)
 			draw_rect(rect, base_color)
 
 			if highlights.has(cell):
-				draw_rect(rect.grow(-4.0), highlights[cell])
+				var highlight: Dictionary = highlights[cell]
+				var highlight_color: Color = highlight.get("color", Color.WHITE)
+				var highlight_style: StringName = highlight.get("style", &"fill")
+				if highlight_style == &"border":
+					draw_rect(rect.grow(-5.0), highlight_color, false, 4.0)
+				else:
+					draw_rect(rect, highlight_color)
 
 			if blocked_cells.has(cell):
 				draw_rect(rect.grow(-7.0), Color(0.45, 0.24, 0.24))

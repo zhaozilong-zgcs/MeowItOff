@@ -18,9 +18,15 @@ var _pickup_button: Button
 var _cancel_button: Button
 var _result_panel: PanelContainer
 var _result_label: Label
+var _current_ap: int = 0
+var _inventory_counts: Dictionary = {}
+var _item_defs: Dictionary = {}
+var _selected_item_id: StringName = &""
 
 
 func build(item_defs: Dictionary) -> void:
+	_item_defs = item_defs
+
 	var root := Control.new()
 	root.set_anchors_preset(Control.PRESET_FULL_RECT)
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -81,13 +87,9 @@ func build(item_defs: Dictionary) -> void:
 	_inventory_box.add_theme_constant_override("separation", 10)
 	root.add_child(_inventory_box)
 
-	for id in [&"wall", &"toy", &"trap", &"net"]:
+	for id in [&"wall", &"toy", &"trap", &"net", &"ice"]:
 		var item := item_defs[id] as ItemData
-		var button := Button.new()
-		button.name = String(id)
-		button.custom_minimum_size = Vector2(160, 72)
-		button.text = "%s x0\n%dAP" % [item.display_name, item.ap_cost]
-		button.pressed.connect(_on_inventory_button_pressed.bind(id))
+		var button := _make_inventory_button(item)
 		_inventory_box.add_child(button)
 
 	_message_label = Label.new()
@@ -124,6 +126,8 @@ func build(item_defs: Dictionary) -> void:
 
 
 func update_status(ap: int, max_ap: int, turn_number: int, remaining_turns: int, phase: StringName) -> void:
+	_current_ap = ap
+
 	var phase_text := "玩家"
 	if phase == &"cat":
 		phase_text = "小猫"
@@ -134,22 +138,41 @@ func update_status(ap: int, max_ap: int, turn_number: int, remaining_turns: int,
 	_turn_label.text = "回合 %d" % turn_number
 	_remaining_label.text = "剩余拖延 %d" % remaining_turns
 	_phase_label.text = "阶段 %s" % phase_text
+	_refresh_inventory_buttons()
 
 
 func update_inventory(counts: Dictionary, item_defs: Dictionary) -> void:
+	_inventory_counts = counts
+	_item_defs = item_defs
+	_refresh_inventory_buttons()
+
+
+func set_selection_active(active: bool, item_name: String, item_id: StringName = &"") -> void:
+	_selected_item_id = item_id if active else &""
+	_cancel_button.visible = active
+	_refresh_inventory_buttons()
+	if active:
+		set_message("选择 %s 的目标格，右键或 Esc 取消。" % item_name)
+
+
+func _refresh_inventory_buttons() -> void:
+	if not _inventory_box:
+		return
+
 	for child in _inventory_box.get_children():
 		var button := child as Button
 		var id := StringName(button.name)
-		var item := item_defs[id] as ItemData
-		var count := int(counts.get(id, 0))
-		button.text = "%s x%d\n%dAP" % [item.display_name, count, item.ap_cost]
-		button.disabled = count <= 0
+		if not _item_defs.has(id):
+			continue
 
-
-func set_selection_active(active: bool, item_name: String) -> void:
-	_cancel_button.visible = active
-	if active:
-		set_message("选择 %s 的目标格，右键或 Esc 取消。" % item_name)
+		var item := _item_defs[id] as ItemData
+		var count := int(_inventory_counts.get(id, 0))
+		var count_label := button.get_node("Content/CountLabel") as Label
+		var ap_label := button.get_node("Content/ApLabel") as Label
+		count_label.text = "%s x%d" % [item.display_name, count]
+		ap_label.text = "%dAP" % item.ap_cost
+		button.disabled = count <= 0 or _current_ap < item.ap_cost
+		button.button_pressed = _selected_item_id == id
 
 
 func set_pickup_enabled(enabled: bool) -> void:
@@ -162,7 +185,7 @@ func set_message(message: String) -> void:
 
 func show_result(won: bool) -> void:
 	_result_panel.visible = true
-	_result_label.text = "胜利！\n小猫被拖住了" if won else "失败！\n小猫按到按钮"
+	_result_label.text = "胜利！\n小猫被拦住了" if won else "失败！\n小猫按到按钮"
 
 
 func hide_result() -> void:
@@ -174,6 +197,53 @@ func _make_status_label() -> Label:
 	label.custom_minimum_size = Vector2(160, 34)
 	label.add_theme_font_size_override("font_size", 18)
 	return label
+
+
+func _make_inventory_button(item: ItemData) -> Button:
+	var button := Button.new()
+	button.name = String(item.id)
+	button.custom_minimum_size = Vector2(126, 86)
+	button.text = ""
+	button.toggle_mode = true
+	button.pressed.connect(_on_inventory_button_pressed.bind(item.id))
+
+	var content := VBoxContainer.new()
+	content.name = "Content"
+	content.set_anchors_preset(Control.PRESET_FULL_RECT)
+	content.offset_left = 6
+	content.offset_top = 4
+	content.offset_right = -6
+	content.offset_bottom = -4
+	content.alignment = BoxContainer.ALIGNMENT_CENTER
+	content.add_theme_constant_override("separation", 0)
+	content.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	button.add_child(content)
+
+	var icon := ItemIcon.new()
+	icon.name = "Icon"
+	icon.custom_minimum_size = Vector2(40, 38)
+	icon.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	icon.configure(item.id, item.color)
+	content.add_child(icon)
+
+	var count_label := Label.new()
+	count_label.name = "CountLabel"
+	count_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	count_label.add_theme_font_size_override("font_size", 13)
+	count_label.text = "%s x0" % item.display_name
+	count_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	content.add_child(count_label)
+
+	var ap_label := Label.new()
+	ap_label.name = "ApLabel"
+	ap_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	ap_label.add_theme_font_size_override("font_size", 12)
+	ap_label.text = "%dAP" % item.ap_cost
+	ap_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	content.add_child(ap_label)
+
+	return button
 
 
 func _on_inventory_button_pressed(id: StringName) -> void:

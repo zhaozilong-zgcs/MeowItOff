@@ -6,6 +6,7 @@ enum EffectType {
 	TOY,
 	TRAP,
 	NET,
+	ICE,
 }
 
 @export var id: StringName = &"wall"

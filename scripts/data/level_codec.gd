@@ -3,7 +3,7 @@ extends RefCounted
 
 const SUPPORTED_VERSION := 1
 const SUPPORTED_BOARD_SIZE := Vector2i(10, 10)
-const VALID_ITEM_IDS := [&"wall", &"toy", &"trap", &"net"]
+const VALID_ITEM_IDS := [&"wall", &"toy", &"trap", &"net", &"ice"]
 
 
 static func level_to_json(level: LevelData) -> String:
@@ -139,7 +139,11 @@ static func validate_level(level: LevelData) -> Dictionary:
 
 	var occupied := {}
 	occupied[_cell_key(level.player_start)] = "玩家"
-	occupied[_cell_key(level.cat_start)] = "猫咪"
+	var cat_key := _cell_key(level.cat_start)
+	if occupied.has(cat_key):
+		occupied[cat_key] = "玩家和猫咪"
+	else:
+		occupied[cat_key] = "猫咪"
 	occupied[_cell_key(level.button_pos)] = "按钮"
 
 	for wall_cell in level.walls:
@@ -163,8 +167,6 @@ static func validate_level(level: LevelData) -> Dictionary:
 
 
 static func _validate_unique_core_positions(level: LevelData) -> Dictionary:
-	if level.player_start == level.cat_start:
-		return {"ok": false, "error": "玩家和猫咪不能重叠。"}
 	if level.player_start == level.button_pos:
 		return {"ok": false, "error": "玩家和按钮不能重叠。"}
 	if level.cat_start == level.button_pos:
@@ -190,4 +192,3 @@ static func _cell_key(cell: Vector2i) -> String:
 
 static func _is_inside(cell: Vector2i, board_size: Vector2i) -> bool:
 	return cell.x >= 0 and cell.y >= 0 and cell.x < board_size.x and cell.y < board_size.y
-

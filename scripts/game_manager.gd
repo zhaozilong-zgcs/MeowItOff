@@ -14,6 +14,7 @@ var action_system: ActionSystem
 var turn_system: TurnSystem
 var ui: UIManager
 
+var effect_layer: Node2D
 var unit_layer: Node2D
 var token_layer: Node2D
 var player: TacticalUnit
@@ -23,11 +24,14 @@ var level: LevelData
 var item_defs: Dictionary = {}
 var board_items: Dictionary = {}
 var board_tokens: Dictionary = {}
+var toy_effect_nodes: Dictionary = {}
 var trap_cells: Dictionary = {}
 var toy_cells: Dictionary = {}
+var ice_cells: Dictionary = {}
 var selected_item_id: StringName = &""
 var remaining_turns: int = 0
 var cat_stun_turns: int = 0
+var player_facing: StringName = &"down"
 var game_finished: bool = false
 var _nodes_created: bool = false
 var _active_return_mode: StringName = &"menu"
@@ -74,6 +78,10 @@ func _create_scene_nodes() -> void:
 	grid.cell_selected.connect(_on_cell_selected)
 	add_child(grid)
 
+	effect_layer = Node2D.new()
+	effect_layer.position = GRID_ORIGIN
+	add_child(effect_layer)
+
 	token_layer = Node2D.new()
 	token_layer.position = GRID_ORIGIN
 	add_child(token_layer)
@@ -113,12 +121,16 @@ func _load_level(next_level: LevelData) -> void:
 	level = next_level
 	remaining_turns = level.delay_turns
 	cat_stun_turns = 0
+	player_facing = &"down"
 	game_finished = false
 	selected_item_id = &""
 	board_items.clear()
+	toy_effect_nodes.clear()
 	trap_cells.clear()
 	toy_cells.clear()
+	ice_cells.clear()
 
+	_clear_children(effect_layer)
 	_clear_children(token_layer)
 	_clear_children(unit_layer)
 	board_tokens.clear()
@@ -135,11 +147,13 @@ func _load_level(next_level: LevelData) -> void:
 
 	player = TacticalUnit.new()
 	player.configure(&"player", level.player_start, grid)
+	player.set_facing(player_facing)
 	unit_layer.add_child(player)
 
 	cat = TacticalUnit.new()
 	cat.configure(&"cat", level.cat_start, grid)
 	unit_layer.add_child(cat)
+	_refresh_unit_positions()
 
 	inventory.reset()
 	turn_system.reset()
@@ -148,6 +162,7 @@ func _load_level(next_level: LevelData) -> void:
 	ui.hide_result()
 	ui.update_inventory(inventory.counts, item_defs)
 	_refresh_ui()
+	_refresh_movement_highlights()
 
 
 func _create_default_level() -> LevelData:
@@ -155,10 +170,12 @@ func _create_default_level() -> LevelData:
 
 
 func _create_item_defs() -> void:
-	item_defs[&"wall"] = _make_item(&"wall", "墙", "墙", 1, 1, 1, ItemData.EffectType.WALL, Color(0.45, 0.24, 0.24))
+	item_defs[&"wall"] = _make_item(&"wall", "道具墙", "墙", 1, 1, 1, ItemData.EffectType.WALL, Color(0.90, 0.60, 0.30))
+	item_defs[&"obstacle_wall"] = _make_item(&"obstacle_wall", "障碍墙", "障", 0, 0, 0, ItemData.EffectType.WALL, Color(0.34, 0.34, 0.38))
 	item_defs[&"toy"] = _make_item(&"toy", "玩具", "玩", 2, 2, 1, ItemData.EffectType.TOY, Color(0.97, 0.76, 0.16))
-	item_defs[&"trap"] = _make_item(&"trap", "陷阱", "陷", 2, 2, 1, ItemData.EffectType.TRAP, Color(0.08, 0.75, 0.78))
+	item_defs[&"trap"] = _make_item(&"trap", "陷阱", "陷", 2, 2, 1, ItemData.EffectType.TRAP, Color(0.88, 0.18, 0.28))
 	item_defs[&"net"] = _make_item(&"net", "捕捉网", "网", 3, 3, 1, ItemData.EffectType.NET, Color(0.73, 0.92, 0.86))
+	item_defs[&"ice"] = _make_item(&"ice", "冰块", "冰", 2, 2, 1, ItemData.EffectType.ICE, Color(0.50, 0.90, 1.0))
 
 
 func _make_item(
@@ -191,25 +208,32 @@ func _on_cell_selected(cell: Vector2i) -> void:
 		_try_use_selected_item(cell)
 		return
 
-	if cell == cat.grid_position and _grid_distance(player.grid_position, cat.grid_position) <= 1:
-		_try_catch_cat()
-	elif cell == player.grid_position and board_items.has(cell):
+	if cell == player.grid_position and board_items.has(cell):
 		_try_pickup_item()
 	else:
 		_try_move_player(cell)
 
 
 func _try_move_player(cell: Vector2i) -> void:
-	if not _is_player_move_target(cell):
-		ui.set_message("只能移动到相邻的空格。")
+	var reachable_cells := _get_reachable_player_cells()
+	if not reachable_cells.has(cell):
+		ui.set_message("只能移动到高亮范围内的空格。")
 		return
 
-	if not action_system.spend(MOVE_COST):
+	var move_cost := int(reachable_cells[cell])
+	if not action_system.spend(move_cost):
 		ui.set_message("AP 不足，不能移动。")
 		return
 
+	var slide_direction := _get_direction_to_player_target(cell, reachable_cells)
 	player.set_grid_position(cell, grid)
-	ui.set_message("移动到 %s。" % str(cell))
+	_set_player_facing_from_direction(slide_direction)
+	var slide_distance := _resolve_ice_slide(player, slide_direction, 1, true)
+	if slide_distance > 0:
+		ui.set_message("移动到 %s，消耗 %dAP；踩到冰块滑行 %d 格。" % [str(player.grid_position), move_cost, slide_distance])
+	else:
+		ui.set_message("移动到 %s，消耗 %dAP。" % [str(cell), move_cost])
+	_refresh_unit_positions()
 	_cancel_selection()
 	_check_pickup_hint()
 
@@ -227,6 +251,11 @@ func _try_pickup_item() -> void:
 	var count := int(entry["count"])
 	inventory.add_item(id, count)
 	board_items.erase(player.grid_position)
+	if id == &"ice":
+		ice_cells.erase(player.grid_position)
+	elif id == &"toy":
+		toy_cells.erase(player.grid_position)
+		_remove_toy_attraction_zone(player.grid_position)
 	_remove_board_token(player.grid_position)
 	ui.set_message("拾取了 %s x%d。" % [(item_defs[id] as ItemData).display_name, count])
 	_check_pickup_hint()
@@ -237,6 +266,10 @@ func _select_item(id: StringName) -> void:
 		return
 
 	if not item_defs.has(id):
+		return
+
+	if selected_item_id == id:
+		_cancel_selection()
 		return
 
 	var item := item_defs[id] as ItemData
@@ -250,8 +283,8 @@ func _select_item(id: StringName) -> void:
 
 	selected_item_id = id
 	var cells := _get_valid_item_targets(item)
-	grid.set_highlights(cells, Color(0.96, 0.22, 0.56, 0.42))
-	ui.set_selection_active(true, item.display_name)
+	grid.set_highlights(cells, Color(0.98, 0.76, 0.36, 0.62))
+	ui.set_selection_active(true, item.display_name, id)
 
 
 func _try_use_selected_item(cell: Vector2i) -> void:
@@ -262,6 +295,10 @@ func _try_use_selected_item(cell: Vector2i) -> void:
 	var valid_targets := _get_valid_item_targets(item)
 	if not valid_targets.has(cell):
 		ui.set_message("这个格子不能放置/使用 %s。" % item.display_name)
+		return
+
+	if item.effect_type == ItemData.EffectType.NET and cell != cat.grid_position:
+		ui.set_message("捕捉网只能捕获玩家朝向的前方一格。")
 		return
 
 	if not action_system.spend(item.ap_cost):
@@ -279,14 +316,20 @@ func _try_use_selected_item(cell: Vector2i) -> void:
 		ItemData.EffectType.TOY:
 			toy_cells[cell] = true
 			_add_board_token(cell, item)
-			ui.set_message("放置了玩具，小猫会优先过去。")
+			_add_toy_attraction_zone(cell)
+			ui.set_message("放置了玩具，小猫进入金色烟雾范围才会被吸引。")
 		ItemData.EffectType.TRAP:
 			trap_cells[cell] = true
 			_add_board_token(cell, item)
 			ui.set_message("放置了陷阱，小猫踩中会停一回合。")
 		ItemData.EffectType.NET:
-			cat_stun_turns = maxi(cat_stun_turns, 1)
-			ui.set_message("捕捉网命中，小猫下一回合会停住。")
+			ui.set_message("捕捉网命中，小猫被抓住了！")
+			_finish_game(true)
+			return
+		ItemData.EffectType.ICE:
+			ice_cells[cell] = true
+			_add_board_token(cell, item)
+			ui.set_message("放置了冰块，踩上会沿移动方向滑行。")
 
 	_cancel_selection()
 
@@ -298,6 +341,7 @@ func _try_catch_cat() -> void:
 
 	cat_stun_turns = maxi(cat_stun_turns, 1)
 	ui.set_message("你拦住了小猫，它下一回合会停住。")
+	_refresh_movement_highlights()
 
 
 func _end_player_turn() -> void:
@@ -310,6 +354,7 @@ func _end_player_turn() -> void:
 
 func _run_cat_turn() -> void:
 	turn_system.set_phase(&"cat")
+	grid.clear_highlights()
 	ui.set_message("小猫正在寻找最短路径...")
 
 	if cat_stun_turns > 0:
@@ -317,14 +362,20 @@ func _run_cat_turn() -> void:
 		ui.set_message("小猫被控制住，停了一回合。")
 	else:
 		var target := _get_cat_target()
-		var path := pathfinder.find_path_with_blockers(cat.grid_position, target, grid, [player.grid_position])
+		var path := pathfinder.find_path(cat.grid_position, target, grid)
 		if path.size() > 1:
+			var cat_direction := path[1] - cat.grid_position
 			cat.set_grid_position(path[1], grid)
-			ui.set_message("小猫向目标移动了一格。")
+			var cat_slide_distance := _resolve_ice_slide(cat, cat_direction, 2, false)
+			if cat_slide_distance > 0:
+				ui.set_message("小猫踩到冰块，滑行了 %d 格。" % cat_slide_distance)
+			else:
+				ui.set_message("小猫向目标移动了一格。")
 		else:
 			ui.set_message("小猫暂时找不到路。")
 
 	_resolve_cat_cell_effects()
+	_refresh_unit_positions()
 	if cat.grid_position == level.button_pos:
 		_finish_game(false)
 		return
@@ -338,6 +389,7 @@ func _run_cat_turn() -> void:
 	action_system.reset_ap()
 	_check_pickup_hint()
 	_refresh_ui()
+	_refresh_movement_highlights()
 
 
 func _get_cat_target() -> Vector2i:
@@ -345,7 +397,10 @@ func _get_cat_target() -> Vector2i:
 	var best_path_length := 999999
 
 	for toy_cell in toy_cells.keys():
-		var path := pathfinder.find_path_with_blockers(cat.grid_position, toy_cell, grid, [player.grid_position])
+		if not _is_cat_in_toy_effect_area(toy_cell):
+			continue
+
+		var path := pathfinder.find_path(cat.grid_position, toy_cell, grid)
 		if path.size() > 0 and path.size() < best_path_length:
 			best_cell = toy_cell
 			best_path_length = path.size()
@@ -353,9 +408,15 @@ func _get_cat_target() -> Vector2i:
 	return best_cell
 
 
+func _is_cat_in_toy_effect_area(toy_cell: Vector2i) -> bool:
+	return _get_toy_effect_cells(toy_cell).has(cat.grid_position)
+
+
 func _resolve_cat_cell_effects() -> void:
 	if toy_cells.has(cat.grid_position):
 		toy_cells.erase(cat.grid_position)
+		board_items.erase(cat.grid_position)
+		_remove_toy_attraction_zone(cat.grid_position)
 		_remove_board_token(cat.grid_position)
 		ui.set_message("小猫被玩具吸引住，然后又想起按钮。")
 
@@ -387,48 +448,267 @@ func _on_back_requested() -> void:
 
 func _cancel_selection() -> void:
 	selected_item_id = &""
-	grid.clear_highlights()
 	if ui:
 		ui.set_selection_active(false, "")
 		_check_pickup_hint()
+	_refresh_movement_highlights()
 
 
 func _get_valid_item_targets(item: ItemData) -> Array[Vector2i]:
 	var cells: Array[Vector2i] = []
-
 	if item.effect_type == ItemData.EffectType.NET:
-		if _grid_distance(player.grid_position, cat.grid_position) <= item.placement_range:
-			cells.append(cat.grid_position)
+		var target_cell := _get_player_front_cell()
+		if grid.is_inside(target_cell) and not grid.is_blocked(target_cell):
+			cells.append(target_cell)
 		return cells
 
-	for y in level.board_size.y:
-		for x in level.board_size.x:
-			var cell := Vector2i(x, y)
-			if _grid_distance(player.grid_position, cell) > item.placement_range:
-				continue
-			if cell == player.grid_position or cell == cat.grid_position or cell == level.button_pos:
-				continue
-			if grid.is_blocked(cell) or board_items.has(cell) or trap_cells.has(cell) or toy_cells.has(cell):
-				continue
+	var offsets := _get_item_target_offsets(item)
 
-			cells.append(cell)
+	for offset in offsets:
+		var cell := player.grid_position + offset
+		if not grid.is_inside(cell):
+			continue
+		if cell == player.grid_position or cell == level.button_pos:
+			continue
+		if grid.is_blocked(cell):
+			continue
+
+		if cell == cat.grid_position:
+			continue
+		if board_items.has(cell) or trap_cells.has(cell) or toy_cells.has(cell) or ice_cells.has(cell):
+			continue
+
+		cells.append(cell)
 
 	return cells
 
 
+func _get_item_target_offsets(item: ItemData) -> Array[Vector2i]:
+	match item.effect_type:
+		ItemData.EffectType.WALL:
+			return _get_manhattan_ring_offsets(2)
+		ItemData.EffectType.TOY:
+			var offsets: Array[Vector2i] = [
+				Vector2i(-1, -2),
+				Vector2i(1, -2),
+				Vector2i(-2, -1),
+				Vector2i(2, -1),
+				Vector2i(-2, 1),
+				Vector2i(2, 1),
+				Vector2i(-1, 2),
+				Vector2i(1, 2),
+			]
+			return offsets
+		ItemData.EffectType.TRAP:
+			return _get_trap_target_offsets()
+		ItemData.EffectType.NET:
+			var offsets: Array[Vector2i] = [_get_facing_offset()]
+			return offsets
+		ItemData.EffectType.ICE:
+			return _get_ice_target_offsets()
+
+	return _get_king_offsets()
+
+
+func _get_manhattan_ring_offsets(distance: int) -> Array[Vector2i]:
+	var offsets: Array[Vector2i] = []
+	for y in range(-distance, distance + 1):
+		for x in range(-distance, distance + 1):
+			if x == 0 and y == 0:
+				continue
+			if absi(x) + absi(y) == distance:
+				offsets.append(Vector2i(x, y))
+
+	return offsets
+
+
+func _get_trap_target_offsets() -> Array[Vector2i]:
+	var offsets: Array[Vector2i] = []
+	for y in range(-2, 3):
+		for x in range(-2, 3):
+			if x == 0 and y == 0:
+				continue
+			if maxi(absi(x), absi(y)) != 2:
+				continue
+			if (x == 0 and absi(y) == 2) or (absi(x) == 2 and y == 0):
+				continue
+			offsets.append(Vector2i(x, y))
+
+	return offsets
+
+
+func _get_ice_target_offsets() -> Array[Vector2i]:
+	var offsets: Array[Vector2i] = []
+	for y in range(-2, 3):
+		for x in range(-2, 3):
+			if x == 0 and y == 0:
+				continue
+			if maxi(absi(x), absi(y)) > 2:
+				continue
+			if absi(x) == 2 and absi(y) == 2:
+				continue
+			offsets.append(Vector2i(x, y))
+
+	return offsets
+
+
 func _is_player_move_target(cell: Vector2i) -> bool:
+	return _get_reachable_player_cells().has(cell)
+
+
+func _refresh_movement_highlights() -> void:
+	if not grid or not player or not action_system or not turn_system:
+		return
+
+	if game_finished or turn_system.phase != &"player" or selected_item_id != &"":
+		grid.clear_highlights()
+		return
+
+	var highlight_cells: Array[Vector2i] = []
+	for cell in _get_reachable_player_cells().keys():
+		highlight_cells.append(cell)
+
+	grid.set_highlights(highlight_cells, Color(0.10, 0.95, 0.25, 0.42))
+
+
+func _get_reachable_player_cells() -> Dictionary:
+	var reachable := {}
+	if not player or not action_system:
+		return reachable
+
+	if action_system.current_ap < MOVE_COST:
+		return reachable
+
+	for offset in _get_cardinal_move_offsets():
+		var next_cell := player.grid_position + offset
+		if not grid.is_inside(next_cell):
+			continue
+		if grid.is_blocked(next_cell):
+			continue
+
+		reachable[next_cell] = MOVE_COST
+
+	return reachable
+
+
+func _get_direction_to_player_target(target: Vector2i, reachable_cells: Dictionary) -> Vector2i:
+	var current := target
+	var current_cost := int(reachable_cells.get(current, 0))
+
+	while current_cost > MOVE_COST:
+		var previous := _find_previous_reachable_step(current, current_cost, reachable_cells)
+		if previous == current:
+			break
+
+		current = previous
+		current_cost = int(reachable_cells.get(current, MOVE_COST))
+
+	return current - player.grid_position
+
+
+func _find_previous_reachable_step(cell: Vector2i, cost: int, reachable_cells: Dictionary) -> Vector2i:
+	for offset in _get_cardinal_move_offsets():
+		var candidate := cell + offset
+		if candidate == player.grid_position and cost == MOVE_COST:
+			return candidate
+		if reachable_cells.has(candidate) and int(reachable_cells[candidate]) == cost - MOVE_COST:
+			return candidate
+
+	return cell
+
+
+func _resolve_ice_slide(unit: TacticalUnit, direction: Vector2i, max_steps: int, is_player: bool) -> int:
+	if direction == Vector2i.ZERO:
+		return 0
+	if not ice_cells.has(unit.grid_position):
+		return 0
+
+	var moved_steps := 0
+	for _step in range(max_steps):
+		var next_cell := unit.grid_position + direction
+		if not _can_slide_into(next_cell, is_player):
+			break
+
+		unit.set_grid_position(next_cell, grid)
+		moved_steps += 1
+		if not is_player and unit.grid_position == level.button_pos:
+			break
+
+	return moved_steps
+
+
+func _can_slide_into(cell: Vector2i, _is_player: bool) -> bool:
 	if not grid.is_inside(cell):
 		return false
 	if grid.is_blocked(cell):
 		return false
-	if cell == cat.grid_position:
-		return false
-	var distance := _grid_distance(player.grid_position, cell)
-	return distance == 1
+
+	return true
 
 
-func _grid_distance(a: Vector2i, b: Vector2i) -> int:
-	return maxi(absi(a.x - b.x), absi(a.y - b.y))
+func _refresh_unit_positions() -> void:
+	if not player or not cat or not grid:
+		return
+
+	player.set_facing(player_facing)
+	player.position = grid.grid_to_local_center(player.grid_position)
+	cat.position = grid.grid_to_local_center(cat.grid_position)
+	if player.grid_position == cat.grid_position:
+		var offset := Vector2(grid.cell_size * 0.14, 0.0)
+		player.position -= offset
+		cat.position += offset
+
+
+func _set_player_facing_from_direction(direction: Vector2i) -> void:
+	if direction == Vector2i(0, -1):
+		player_facing = &"up"
+	elif direction == Vector2i(0, 1):
+		player_facing = &"down"
+	elif direction == Vector2i(-1, 0):
+		player_facing = &"left"
+	elif direction == Vector2i(1, 0):
+		player_facing = &"right"
+
+	if player:
+		player.set_facing(player_facing)
+
+
+func _get_player_front_cell() -> Vector2i:
+	return player.grid_position + _get_facing_offset()
+
+
+func _get_facing_offset() -> Vector2i:
+	match player_facing:
+		&"up":
+			return Vector2i(0, -1)
+		&"left":
+			return Vector2i(-1, 0)
+		&"right":
+			return Vector2i(1, 0)
+		_:
+			return Vector2i(0, 1)
+
+
+func _get_cardinal_move_offsets() -> Array[Vector2i]:
+	return [
+		Vector2i(0, -1),
+		Vector2i(-1, 0),
+		Vector2i(1, 0),
+		Vector2i(0, 1),
+	]
+
+
+func _get_king_offsets() -> Array[Vector2i]:
+	return [
+		Vector2i(-1, -1),
+		Vector2i(0, -1),
+		Vector2i(1, -1),
+		Vector2i(-1, 0),
+		Vector2i(1, 0),
+		Vector2i(-1, 1),
+		Vector2i(0, 1),
+		Vector2i(1, 1),
+	]
 
 
 func _place_wall(cell: Vector2i) -> void:
@@ -436,7 +716,7 @@ func _place_wall(cell: Vector2i) -> void:
 		return
 
 	grid.set_blocked(cell, true)
-	_add_board_token(cell, item_defs[&"wall"] as ItemData)
+	_add_board_token(cell, item_defs[&"obstacle_wall"] as ItemData)
 
 
 func _add_board_item(cell: Vector2i, id: StringName, count: int) -> void:
@@ -444,6 +724,11 @@ func _add_board_item(cell: Vector2i, id: StringName, count: int) -> void:
 		return
 
 	board_items[cell] = {"id": id, "count": count}
+	if id == &"ice":
+		ice_cells[cell] = true
+	elif id == &"toy":
+		toy_cells[cell] = true
+		_add_toy_attraction_zone(cell)
 	_add_board_token(cell, item_defs[id] as ItemData)
 
 
@@ -456,12 +741,53 @@ func _add_board_token(cell: Vector2i, item: ItemData) -> void:
 
 
 func _remove_board_token(cell: Vector2i) -> void:
+	_remove_toy_attraction_zone(cell)
 	if not board_tokens.has(cell):
 		return
 
 	var token := board_tokens[cell] as Node
 	board_tokens.erase(cell)
 	token.queue_free()
+
+
+func _add_toy_attraction_zone(cell: Vector2i) -> void:
+	_remove_toy_attraction_zone(cell)
+	var zone := ToyAttractionZone.new()
+	zone.configure(_get_toy_effect_cells(cell), grid)
+	effect_layer.add_child(zone)
+	toy_effect_nodes[cell] = zone
+
+
+func _remove_toy_attraction_zone(cell: Vector2i) -> void:
+	if not toy_effect_nodes.has(cell):
+		return
+
+	var zone := toy_effect_nodes[cell] as Node
+	toy_effect_nodes.erase(cell)
+	zone.queue_free()
+
+
+func _get_toy_effect_cells(toy_cell: Vector2i) -> Array[Vector2i]:
+	var cells: Array[Vector2i] = []
+	for offset in _get_toy_effect_offsets():
+		var cell := toy_cell + offset
+		if grid.is_inside(cell):
+			cells.append(cell)
+
+	return cells
+
+
+func _get_toy_effect_offsets() -> Array[Vector2i]:
+	var offsets: Array[Vector2i] = []
+	for y in range(-2, 3):
+		for x in range(-2, 3):
+			if x == 0 and y == 0:
+				continue
+			if absi(x) == 2 and absi(y) == 2:
+				continue
+			offsets.append(Vector2i(x, y))
+
+	return offsets
 
 
 func _check_pickup_hint() -> void:
@@ -483,6 +809,7 @@ func _on_inventory_changed(counts: Dictionary) -> void:
 
 func _on_ap_changed(_current_ap: int, _max_ap: int) -> void:
 	_refresh_ui()
+	_refresh_movement_highlights()
 
 
 func _on_phase_changed(_phase: StringName) -> void:

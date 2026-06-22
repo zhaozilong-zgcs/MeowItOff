@@ -12,7 +12,7 @@ var unit_layer: Node2D
 var player_unit: TacticalUnit
 var cat_unit: TacticalUnit
 var level: LevelData
-var selected_tool: StringName = &"wall"
+var selected_tool: StringName = &"obstacle_wall"
 var status_label: Label
 var delay_spin: SpinBox
 var export_dialog: FileDialog
@@ -105,22 +105,26 @@ func _build_ui() -> void:
 	tool_column.add_theme_constant_override("separation", 8)
 	tool_panel.add_child(tool_column)
 
-	var tool_row := HBoxContainer.new()
-	tool_row.add_theme_constant_override("separation", 6)
+	var tool_row := GridContainer.new()
+	tool_row.columns = 5
+	tool_row.add_theme_constant_override("h_separation", 8)
+	tool_row.add_theme_constant_override("v_separation", 6)
 	tool_column.add_child(tool_row)
 
 	var tools := [
-		{"id": &"wall", "label": "墙"},
+		{"id": &"obstacle_wall", "label": "障碍墙"},
+		{"id": &"wall", "label": "道具墙"},
 		{"id": &"toy", "label": "玩具"},
 		{"id": &"trap", "label": "陷阱"},
 		{"id": &"net", "label": "捕捉网"},
+		{"id": &"ice", "label": "冰块"},
 		{"id": &"button", "label": "按钮"},
 		{"id": &"cat", "label": "猫咪"},
 		{"id": &"player", "label": "玩家"},
 		{"id": &"eraser", "label": "橡皮"},
 	]
 	for tool in tools:
-		var tool_button := _make_button(str(tool["label"]), _select_tool.bind(tool["id"] as StringName), Vector2(78, 44))
+		var tool_button := _make_button(str(tool["label"]), _select_tool.bind(tool["id"] as StringName), Vector2(124, 40))
 		tool_row.add_child(tool_button)
 
 	var setting_row := HBoxContainer.new()
@@ -143,7 +147,7 @@ func _build_ui() -> void:
 	setting_row.add_child(delay_spin)
 
 	status_label = Label.new()
-	status_label.text = "当前工具：墙。点击棋盘放置。"
+	status_label.text = "当前工具：障碍墙。点击棋盘放置。"
 	status_label.custom_minimum_size = Vector2(640, 44)
 	status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	status_label.add_theme_font_size_override("font_size", 17)
@@ -161,9 +165,9 @@ func _build_ui() -> void:
 
 func _on_cell_selected(cell: Vector2i) -> void:
 	match selected_tool:
-		&"wall":
+		&"obstacle_wall":
 			_place_wall(cell)
-		&"toy", &"trap", &"net":
+		&"wall", &"toy", &"trap", &"net", &"ice":
 			_place_item(cell, selected_tool)
 		&"button":
 			_move_button(cell)
@@ -179,13 +183,13 @@ func _on_cell_selected(cell: Vector2i) -> void:
 
 func _place_wall(cell: Vector2i) -> void:
 	if _is_core_cell(cell):
-		_set_status("墙不能放在玩家、猫咪或按钮上。")
+		_set_status("障碍墙不能放在玩家、猫咪或按钮上。")
 		return
 
 	_remove_item_at(cell)
 	if not level.walls.has(cell):
 		level.walls.append(cell)
-	_set_status("已放置墙：%s" % str(cell))
+	_set_status("已放置障碍墙：%s" % str(cell))
 
 
 func _place_item(cell: Vector2i, item_id: StringName) -> void:
@@ -209,8 +213,8 @@ func _move_button(cell: Vector2i) -> void:
 
 
 func _move_cat(cell: Vector2i) -> void:
-	if cell == level.player_start or cell == level.button_pos:
-		_set_status("猫咪不能和玩家或按钮重叠。")
+	if cell == level.button_pos:
+		_set_status("猫咪不能和按钮重叠。")
 		return
 
 	_clear_cell_for_core_move(cell)
@@ -219,8 +223,8 @@ func _move_cat(cell: Vector2i) -> void:
 
 
 func _move_player(cell: Vector2i) -> void:
-	if cell == level.cat_start or cell == level.button_pos:
-		_set_status("玩家不能和猫咪或按钮重叠。")
+	if cell == level.button_pos:
+		_set_status("玩家不能和按钮重叠。")
 		return
 
 	_clear_cell_for_core_move(cell)
@@ -242,7 +246,7 @@ func _redraw_level() -> void:
 
 	for wall_cell in level.walls:
 		grid.set_blocked(wall_cell, true)
-		_add_token(wall_cell, item_defs[&"wall"] as ItemData)
+		_add_token(wall_cell, item_defs[&"obstacle_wall"] as ItemData)
 
 	for item_entry in level.items:
 		var item_id := item_entry.get("id", &"toy") as StringName
@@ -251,6 +255,7 @@ func _redraw_level() -> void:
 
 	player_unit.set_grid_position(level.player_start, grid)
 	cat_unit.set_grid_position(level.cat_start, grid)
+	_refresh_unit_positions()
 
 
 func _add_token(cell: Vector2i, item: ItemData) -> void:
@@ -326,10 +331,12 @@ func _make_button(text: String, callback: Callable, size: Vector2) -> Button:
 
 
 func _create_item_defs() -> void:
-	item_defs[&"wall"] = _make_item(&"wall", "墙", "墙", Color(0.45, 0.24, 0.24))
+	item_defs[&"wall"] = _make_item(&"wall", "道具墙", "墙", Color(0.90, 0.60, 0.30))
+	item_defs[&"obstacle_wall"] = _make_item(&"obstacle_wall", "障碍墙", "障", Color(0.34, 0.34, 0.38))
 	item_defs[&"toy"] = _make_item(&"toy", "玩具", "玩", Color(0.97, 0.76, 0.16))
-	item_defs[&"trap"] = _make_item(&"trap", "陷阱", "陷", Color(0.08, 0.75, 0.78))
+	item_defs[&"trap"] = _make_item(&"trap", "陷阱", "陷", Color(0.88, 0.18, 0.28))
 	item_defs[&"net"] = _make_item(&"net", "捕捉网", "网", Color(0.73, 0.92, 0.86))
+	item_defs[&"ice"] = _make_item(&"ice", "冰块", "冰", Color(0.50, 0.90, 1.0))
 
 
 func _make_item(id: StringName, display_name: String, short_label: String, color: Color) -> ItemData:
@@ -348,14 +355,18 @@ func _set_status(message: String) -> void:
 
 func _tool_name(tool_id: StringName) -> String:
 	match tool_id:
+		&"obstacle_wall":
+			return "障碍墙"
 		&"wall":
-			return "墙"
+			return "道具墙"
 		&"toy":
 			return "玩具"
 		&"trap":
 			return "陷阱"
 		&"net":
 			return "捕捉网"
+		&"ice":
+			return "冰块"
 		&"button":
 			return "按钮"
 		&"cat":
@@ -370,6 +381,18 @@ func _tool_name(tool_id: StringName) -> String:
 
 func _is_core_cell(cell: Vector2i) -> bool:
 	return cell == level.player_start or cell == level.cat_start or cell == level.button_pos
+
+
+func _refresh_unit_positions() -> void:
+	if not player_unit or not cat_unit or not grid:
+		return
+
+	player_unit.position = grid.grid_to_local_center(level.player_start)
+	cat_unit.position = grid.grid_to_local_center(level.cat_start)
+	if level.player_start == level.cat_start:
+		var offset := Vector2(grid.cell_size * 0.14, 0.0)
+		player_unit.position -= offset
+		cat_unit.position += offset
 
 
 func _clear_cell_for_core_move(cell: Vector2i) -> void:

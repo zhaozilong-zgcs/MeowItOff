@@ -24,6 +24,7 @@ static func create_tutorial_level() -> LevelData:
 		{"id": &"toy", "position": Vector2i(2, 8), "count": 1},
 		{"id": &"trap", "position": Vector2i(5, 8), "count": 1},
 		{"id": &"net", "position": Vector2i(7, 7), "count": 1},
+		{"id": &"ice", "position": Vector2i(8, 6), "count": 1},
 	]
 	return level
 
@@ -39,4 +40,3 @@ static func create_blank_level() -> LevelData:
 	level.walls = []
 	level.items = []
 	return level
-
