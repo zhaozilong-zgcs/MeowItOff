@@ -3,6 +3,15 @@ extends Node
 
 
 func find_path(start: Vector2i, goal: Vector2i, grid: GridSystem) -> Array[Vector2i]:
+	return find_path_with_blockers(start, goal, grid, [])
+
+
+func find_path_with_blockers(
+	start: Vector2i,
+	goal: Vector2i,
+	grid: GridSystem,
+	extra_blocked_cells: Array[Vector2i]
+) -> Array[Vector2i]:
 	if start == goal:
 		var single_cell_path: Array[Vector2i] = [start]
 		return single_cell_path
@@ -23,6 +32,8 @@ func find_path(start: Vector2i, goal: Vector2i, grid: GridSystem) -> Array[Vecto
 
 		for neighbor in grid.get_cardinal_neighbors(current):
 			if grid.is_blocked(neighbor) and neighbor != goal:
+				continue
+			if extra_blocked_cells.has(neighbor) and neighbor != goal:
 				continue
 
 			var tentative_g := int(g_score[current]) + 1

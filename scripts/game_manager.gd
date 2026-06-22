@@ -317,7 +317,7 @@ func _run_cat_turn() -> void:
 		ui.set_message("小猫被控制住，停了一回合。")
 	else:
 		var target := _get_cat_target()
-		var path := pathfinder.find_path(cat.grid_position, target, grid)
+		var path := pathfinder.find_path_with_blockers(cat.grid_position, target, grid, [player.grid_position])
 		if path.size() > 1:
 			cat.set_grid_position(path[1], grid)
 			ui.set_message("小猫向目标移动了一格。")
@@ -345,7 +345,7 @@ func _get_cat_target() -> Vector2i:
 	var best_path_length := 999999
 
 	for toy_cell in toy_cells.keys():
-		var path := pathfinder.find_path(cat.grid_position, toy_cell, grid)
+		var path := pathfinder.find_path_with_blockers(cat.grid_position, toy_cell, grid, [player.grid_position])
 		if path.size() > 0 and path.size() < best_path_length:
 			best_cell = toy_cell
 			best_path_length = path.size()
