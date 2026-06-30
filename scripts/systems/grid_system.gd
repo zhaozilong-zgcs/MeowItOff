@@ -1,14 +1,17 @@
 class_name GridSystem
 extends Node2D
 
+const UI_THEME_SCRIPT := preload("res://scripts/ui/hand_drawn_theme.gd")
+
 signal cell_selected(cell: Vector2i)
 
-@export var cell_size: int = 64
+@export var cell_size: int = 68
 
 var board_size: Vector2i = Vector2i(10, 10)
 var button_position: Vector2i = Vector2i(9, 0)
 var blocked_cells: Dictionary = {}
 var highlights: Dictionary = {}
+var ui_theme := UI_THEME_SCRIPT.new()
 
 
 func setup(next_board_size: Vector2i, next_button_position: Vector2i) -> void:
@@ -88,14 +91,15 @@ func _unhandled_input(event: InputEvent) -> void:
 
 func _draw() -> void:
 	var board_pixel_size := Vector2(board_size.x, board_size.y) * float(cell_size)
-	draw_rect(Rect2(Vector2.ZERO, board_pixel_size), Color(0.05, 0.05, 0.05))
+	draw_rect(Rect2(Vector2.ZERO, board_pixel_size), ui_theme.INK)
 
 	for y in board_size.y:
 		for x in board_size.x:
 			var cell := Vector2i(x, y)
 			var rect := Rect2(Vector2(x, y) * float(cell_size), Vector2.ONE * float(cell_size))
-			var base_color := Color(0.96, 0.96, 0.92) if (x + y) % 2 == 0 else Color(0.08, 0.08, 0.08)
+			var base_color := ui_theme.BOARD_LIGHT if (x + y) % 2 == 0 else ui_theme.BOARD_DARK
 			draw_rect(rect, base_color)
+			draw_rect(rect.grow(-1.0), Color(1.0, 0.92, 0.70, 0.06))
 
 			if highlights.has(cell):
 				var highlight: Dictionary = highlights[cell]
@@ -107,10 +111,13 @@ func _draw() -> void:
 					draw_rect(rect, highlight_color)
 
 			if blocked_cells.has(cell):
-				draw_rect(rect.grow(-7.0), Color(0.45, 0.24, 0.24))
+				draw_rect(rect.grow(-8.0), Color(0.42, 0.22, 0.20, 0.88))
 
-			draw_rect(rect, Color(0.16, 0.37, 0.36, 0.45), false, 2.0)
+			draw_rect(rect, ui_theme.BOARD_LINE, false, 2.0)
+			draw_line(rect.position + Vector2(2.0, 1.0), rect.position + Vector2(rect.size.x - 2.0, 0.0), Color(0.98, 0.88, 0.66, 0.12), 1.0)
+			draw_line(rect.position + Vector2(1.0, rect.size.y - 2.0), rect.position + Vector2(rect.size.x - 1.0, rect.size.y - 1.0), Color(0.02, 0.02, 0.02, 0.16), 1.0)
 
 	var button_center := grid_to_local_center(button_position)
 	draw_circle(button_center, cell_size * 0.28, Color(0.94, 0.18, 0.42))
-	draw_circle(button_center, cell_size * 0.18, Color(1.0, 0.83, 0.76))
+	draw_arc(button_center, cell_size * 0.28, 0.0, TAU, 28, ui_theme.INK, 4.0)
+	draw_circle(button_center, cell_size * 0.17, Color(1.0, 0.80, 0.72))

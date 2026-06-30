@@ -1,7 +1,8 @@
 class_name GameManager
 extends Node2D
 
-const GRID_ORIGIN := Vector2(40, 150)
+const UI_THEME_SCRIPT := preload("res://scripts/ui/hand_drawn_theme.gd")
+const GRID_ORIGIN := Vector2(20, 112)
 const MOVE_COST := 1
 const CATCH_COST := 3
 
@@ -15,6 +16,7 @@ var inventory: Inventory
 var action_system: ActionSystem
 var turn_system: TurnSystem
 var ui: UIManager
+var ui_theme := UI_THEME_SCRIPT.new()
 
 var effect_layer: Node2D
 var unit_layer: Node2D
@@ -75,6 +77,8 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _create_scene_nodes() -> void:
+	ui_theme.add_paper_background(self)
+
 	grid = GridSystem.new()
 	grid.position = GRID_ORIGIN
 	grid.cell_selected.connect(_on_cell_selected)
@@ -112,7 +116,6 @@ func _create_scene_nodes() -> void:
 	ui.build(item_defs)
 	ui.end_turn_requested.connect(_end_player_turn)
 	ui.item_selected.connect(_select_item)
-	ui.cancel_requested.connect(_cancel_selection)
 	ui.restart_requested.connect(_restart)
 	ui.back_requested.connect(_on_back_requested)
 	add_child(ui)
@@ -280,7 +283,7 @@ func _select_item(id: StringName) -> void:
 
 	selected_item_id = id
 	var cells := _get_valid_item_targets(item)
-	grid.set_highlights(cells, Color(0.98, 0.76, 0.36, 0.62))
+	grid.set_highlights(cells, ui_theme.ITEM_HIGHLIGHT)
 	ui.set_selection_active(true, item.display_name, id)
 
 
@@ -573,7 +576,7 @@ func _refresh_movement_highlights() -> void:
 	for cell in _get_reachable_player_cells().keys():
 		highlight_cells.append(cell)
 
-	grid.set_highlights(highlight_cells, Color(0.10, 0.95, 0.25, 0.42))
+	grid.set_highlights(highlight_cells, ui_theme.MOVE_HIGHLIGHT)
 
 
 func _get_reachable_player_cells() -> Dictionary:

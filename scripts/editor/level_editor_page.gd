@@ -1,10 +1,12 @@
 class_name LevelEditorPage
 extends Node2D
 
+const UI_THEME_SCRIPT := preload("res://scripts/ui/hand_drawn_theme.gd")
+
 signal back_requested
 signal preview_requested(level: LevelData)
 
-const GRID_ORIGIN := Vector2(40, 150)
+const GRID_ORIGIN := Vector2(20, 150)
 
 var grid: GridSystem
 var token_layer: Node2D
@@ -18,6 +20,8 @@ var delay_spin: SpinBox
 var export_dialog: FileDialog
 var item_defs: Dictionary = {}
 var token_nodes: Array[Node] = []
+var tool_buttons: Dictionary = {}
+var ui_theme := UI_THEME_SCRIPT.new()
 
 
 func _ready() -> void:
@@ -42,6 +46,8 @@ func get_current_level() -> LevelData:
 
 
 func _build_board() -> void:
+	ui_theme.add_paper_background(self)
+
 	grid = GridSystem.new()
 	grid.position = GRID_ORIGIN
 	grid.cell_selected.connect(_on_cell_selected)
@@ -76,6 +82,7 @@ func _build_ui() -> void:
 	var top_panel := PanelContainer.new()
 	top_panel.position = Vector2(20, 18)
 	top_panel.custom_minimum_size = Vector2(680, 112)
+	ui_theme.apply_panel(top_panel, &"paper")
 	root.add_child(top_panel)
 
 	var top_column := VBoxContainer.new()
@@ -84,21 +91,24 @@ func _build_ui() -> void:
 
 	var title := Label.new()
 	title.text = "关卡编辑器"
-	title.add_theme_font_size_override("font_size", 24)
+	ui_theme.apply_label(title, 24, true)
 	top_column.add_child(title)
 
 	var action_row := HBoxContainer.new()
+	action_row.custom_minimum_size = Vector2(652, 42)
+	action_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	action_row.add_theme_constant_override("separation", 8)
 	top_column.add_child(action_row)
 
-	action_row.add_child(_make_button("预览试玩", _on_preview_pressed, Vector2(150, 42)))
-	action_row.add_child(_make_button("导出 JSON", _on_export_pressed, Vector2(150, 42)))
-	action_row.add_child(_make_button("清空关卡", _on_clear_pressed, Vector2(150, 42)))
-	action_row.add_child(_make_button("返回入口", _on_back_pressed, Vector2(150, 42)))
+	action_row.add_child(_make_button("预览试玩", _on_preview_pressed, Vector2(0, 42)))
+	action_row.add_child(_make_button("导出 JSON", _on_export_pressed, Vector2(0, 42)))
+	action_row.add_child(_make_button("清空关卡", _on_clear_pressed, Vector2(0, 42)))
+	action_row.add_child(_make_button("返回入口", _on_back_pressed, Vector2(0, 42)))
 
 	var tool_panel := PanelContainer.new()
-	tool_panel.position = Vector2(20, 810)
+	tool_panel.position = Vector2(20, 850)
 	tool_panel.custom_minimum_size = Vector2(680, 190)
+	ui_theme.apply_panel(tool_panel, &"paper")
 	root.add_child(tool_panel)
 
 	var tool_column := VBoxContainer.new()
@@ -124,8 +134,12 @@ func _build_ui() -> void:
 		{"id": &"eraser", "label": "橡皮"},
 	]
 	for tool in tools:
-		var tool_button := _make_button(str(tool["label"]), _select_tool.bind(tool["id"] as StringName), Vector2(124, 40))
+		var tool_id := tool["id"] as StringName
+		var tool_button := _make_tool_button(tool_id, str(tool["label"]))
 		tool_row.add_child(tool_button)
+		tool_buttons[tool_id] = tool_button
+
+	_refresh_tool_buttons()
 
 	var setting_row := HBoxContainer.new()
 	setting_row.add_theme_constant_override("separation", 10)
@@ -134,7 +148,7 @@ func _build_ui() -> void:
 	var delay_label := Label.new()
 	delay_label.text = "剩余拖延回合"
 	delay_label.custom_minimum_size = Vector2(150, 36)
-	delay_label.add_theme_font_size_override("font_size", 18)
+	ui_theme.apply_label(delay_label, 18)
 	setting_row.add_child(delay_label)
 
 	delay_spin = SpinBox.new()
@@ -143,6 +157,7 @@ func _build_ui() -> void:
 	delay_spin.step = 1
 	delay_spin.value = level.delay_turns
 	delay_spin.custom_minimum_size = Vector2(130, 42)
+	ui_theme.apply_spinbox(delay_spin)
 	delay_spin.value_changed.connect(_on_delay_changed)
 	setting_row.add_child(delay_spin)
 
@@ -150,7 +165,7 @@ func _build_ui() -> void:
 	status_label.text = "当前工具：障碍墙。点击棋盘放置。"
 	status_label.custom_minimum_size = Vector2(640, 44)
 	status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	status_label.add_theme_font_size_override("font_size", 17)
+	ui_theme.apply_label(status_label, 17)
 	tool_column.add_child(status_label)
 
 	export_dialog = FileDialog.new()
@@ -164,6 +179,10 @@ func _build_ui() -> void:
 
 
 func _on_cell_selected(cell: Vector2i) -> void:
+	if selected_tool == &"":
+		_set_status("未选择工具。点击下方工具按钮后再编辑棋盘。")
+		return
+
 	match selected_tool:
 		&"obstacle_wall":
 			_place_wall(cell)
@@ -266,8 +285,13 @@ func _add_token(cell: Vector2i, item: ItemData) -> void:
 
 
 func _select_tool(tool_id: StringName) -> void:
-	selected_tool = tool_id
-	_set_status("当前工具：%s。点击棋盘放置或移动。" % _tool_name(tool_id))
+	if selected_tool == tool_id:
+		selected_tool = &""
+		_set_status("已取消选择工具。")
+	else:
+		selected_tool = tool_id
+		_set_status("当前工具：%s。点击棋盘放置或移动。" % _tool_name(tool_id))
+	_refresh_tool_buttons()
 
 
 func _on_delay_changed(value: float) -> void:
@@ -326,8 +350,54 @@ func _make_button(text: String, callback: Callable, size: Vector2) -> Button:
 	var button := Button.new()
 	button.text = text
 	button.custom_minimum_size = size
+	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	ui_theme.apply_button(button)
 	button.pressed.connect(callback)
 	return button
+
+
+func _make_tool_button(tool_id: StringName, label_text: String) -> Button:
+	var button := Button.new()
+	button.name = String(tool_id)
+	button.text = ""
+	button.toggle_mode = true
+	button.custom_minimum_size = Vector2(124, 40)
+	ui_theme.apply_inventory_button(button)
+	button.pressed.connect(_select_tool.bind(tool_id))
+
+	var content := HBoxContainer.new()
+	content.set_anchors_preset(Control.PRESET_FULL_RECT)
+	content.offset_left = 7
+	content.offset_top = 4
+	content.offset_right = -7
+	content.offset_bottom = -4
+	content.alignment = BoxContainer.ALIGNMENT_CENTER
+	content.add_theme_constant_override("separation", 4)
+	content.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	button.add_child(content)
+
+	var icon := ItemIcon.new()
+	icon.custom_minimum_size = Vector2(24, 24)
+	icon.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	icon.configure(tool_id, _tool_color(tool_id))
+	content.add_child(icon)
+
+	var label := Label.new()
+	label.text = label_text
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	ui_theme.apply_label(label, 14)
+	content.add_child(label)
+
+	return button
+
+
+func _refresh_tool_buttons() -> void:
+	for tool_id in tool_buttons.keys():
+		var button := tool_buttons[tool_id] as Button
+		if button:
+			button.button_pressed = (tool_id as StringName) == selected_tool
 
 
 func _create_item_defs() -> void:
@@ -377,6 +447,22 @@ func _tool_name(tool_id: StringName) -> String:
 			return "橡皮"
 		_:
 			return "未知"
+
+
+func _tool_color(tool_id: StringName) -> Color:
+	if item_defs.has(tool_id):
+		return (item_defs[tool_id] as ItemData).color
+	match tool_id:
+		&"button":
+			return Color(0.94, 0.18, 0.42)
+		&"cat":
+			return Color(0.04, 0.04, 0.04)
+		&"player":
+			return Color(1.0, 0.42, 0.17)
+		&"eraser":
+			return Color(0.95, 0.77, 0.62)
+		_:
+			return Color.WHITE
 
 
 func _is_core_cell(cell: Vector2i) -> bool:

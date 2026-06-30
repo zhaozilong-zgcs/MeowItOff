@@ -1,12 +1,15 @@
 class_name AppController
 extends Node2D
 
-const COVER_PATH := "res://assets/cover.png"
+const UI_THEME_SCRIPT := preload("res://scripts/ui/hand_drawn_theme.gd")
+const HOME_DECOR_SCRIPT := preload("res://scripts/ui/home_background_decor.gd")
+const VIEWPORT_SIZE := Vector2(720, 1280)
 
 var current_view: Node
 var last_editor_level: LevelData
 var status_message: String = ""
 var audio: AudioManager
+var ui_theme := UI_THEME_SCRIPT.new()
 
 
 func _ready() -> void:
@@ -28,11 +31,17 @@ func _show_home(message: String = "") -> void:
 	var root := _make_fullscreen_root()
 	current_view = root
 	add_child(root)
-	_add_cover_background(root)
+	_add_home_background(root, true)
 
 	var panel := PanelContainer.new()
-	panel.position = Vector2(120, 720)
-	panel.custom_minimum_size = Vector2(480, 470)
+	var panel_height := 360
+	if not message.is_empty():
+		panel_height = 430
+	var panel_size := Vector2(480, panel_height)
+	panel.position = (VIEWPORT_SIZE - panel_size) * 0.5
+	panel.custom_minimum_size = panel_size
+	panel.size = panel_size
+	ui_theme.apply_panel(panel, &"paper")
 	root.add_child(panel)
 
 	var column := VBoxContainer.new()
@@ -43,7 +52,7 @@ func _show_home(message: String = "") -> void:
 	var title := Label.new()
 	title.text = "别按那个键"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", 34)
+	ui_theme.apply_label(title, 34, true)
 	column.add_child(title)
 
 	column.add_child(_make_button("开始游戏", _start_game.bind(LevelFactory.create_tutorial_level(), &"menu"), Vector2(360, 58)))
@@ -51,13 +60,14 @@ func _show_home(message: String = "") -> void:
 	column.add_child(_make_button("编辑器", _show_editor, Vector2(360, 58)))
 	column.add_child(_make_button("导入关卡 JSON", _open_import_dialog.bind(root), Vector2(360, 58)))
 
-	var hint := Label.new()
-	hint.text = message if not message.is_empty() else "选择关卡、编辑关卡，或导入 JSON 开始游戏。"
-	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	hint.custom_minimum_size = Vector2(430, 70)
-	hint.add_theme_font_size_override("font_size", 18)
-	column.add_child(hint)
+	if not message.is_empty():
+		var hint := Label.new()
+		hint.text = message
+		hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		hint.custom_minimum_size = Vector2(430, 70)
+		ui_theme.apply_label(hint, 18)
+		column.add_child(hint)
 
 
 func _show_level_list() -> void:
@@ -67,11 +77,12 @@ func _show_level_list() -> void:
 	var root := _make_fullscreen_root()
 	current_view = root
 	add_child(root)
-	_add_plain_background(root)
+	_add_home_background(root)
 
 	var panel := PanelContainer.new()
 	panel.position = Vector2(70, 180)
 	panel.custom_minimum_size = Vector2(580, 640)
+	ui_theme.apply_panel(panel, &"paper")
 	root.add_child(panel)
 
 	var column := VBoxContainer.new()
@@ -81,7 +92,7 @@ func _show_level_list() -> void:
 	var title := Label.new()
 	title.text = "关卡列表"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", 32)
+	ui_theme.apply_label(title, 32, true)
 	column.add_child(title)
 
 	var tutorial_button := _make_button("教学关", _start_game.bind(LevelFactory.create_tutorial_level(), &"level_list"), Vector2(500, 64))
@@ -90,7 +101,7 @@ func _show_level_list() -> void:
 	var note := Label.new()
 	note.text = "更多内置关卡以后可以直接加入这里。"
 	note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	note.add_theme_font_size_override("font_size", 18)
+	ui_theme.apply_label(note, 18)
 	column.add_child(note)
 
 	column.add_child(_make_button("返回入口", _show_home, Vector2(500, 58)))
@@ -186,35 +197,23 @@ func _make_fullscreen_root() -> Control:
 	return root
 
 
-func _add_cover_background(root: Control) -> void:
-	var texture := load(COVER_PATH) as Texture2D
-	if texture:
-		var cover := TextureRect.new()
-		cover.set_anchors_preset(Control.PRESET_FULL_RECT)
-		cover.texture = texture
-		cover.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-		cover.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
-		root.add_child(cover)
-	else:
-		_add_plain_background(root)
-
-	var shade := ColorRect.new()
-	shade.set_anchors_preset(Control.PRESET_FULL_RECT)
-	shade.color = Color(0.05, 0.04, 0.04, 0.25)
-	root.add_child(shade)
+func _add_home_background(root: Control, decorated: bool = false) -> void:
+	ui_theme.add_control_background(root)
+	if decorated:
+		var decor := HOME_DECOR_SCRIPT.new()
+		decor.set_anchors_preset(Control.PRESET_FULL_RECT)
+		root.add_child(decor)
 
 
 func _add_plain_background(root: Control) -> void:
-	var background := ColorRect.new()
-	background.set_anchors_preset(Control.PRESET_FULL_RECT)
-	background.color = Color(0.12, 0.10, 0.10)
-	root.add_child(background)
+	ui_theme.add_control_background(root)
 
 
 func _make_button(text: String, callback: Callable, size: Vector2) -> Button:
 	var button := Button.new()
 	button.text = text
 	button.custom_minimum_size = size
+	ui_theme.apply_button(button)
 	button.pressed.connect(callback)
 	return button
 
