@@ -5,6 +5,7 @@ const UI_THEME_SCRIPT := preload("res://scripts/ui/hand_drawn_theme.gd")
 
 signal end_turn_requested
 signal item_selected(id: StringName)
+signal item_use_confirmed
 signal restart_requested
 signal back_requested
 
@@ -13,6 +14,7 @@ var _turn_label: Label
 var _remaining_label: Label
 var _message_label: Label
 var _inventory_box: HBoxContainer
+var _confirm_item_button: Button
 var _result_panel: PanelContainer
 var _result_label: Label
 var _current_ap: int = 0
@@ -74,6 +76,16 @@ func build(item_defs: Dictionary) -> void:
 		var button := _make_inventory_button(item)
 		_inventory_box.add_child(button)
 
+	_confirm_item_button = Button.new()
+	_confirm_item_button.text = "确认使用"
+	_confirm_item_button.position = Vector2(110, 1110)
+	_confirm_item_button.custom_minimum_size = Vector2(500, 62)
+	_confirm_item_button.visible = false
+	_confirm_item_button.disabled = true
+	_ui_theme.apply_button(_confirm_item_button)
+	_confirm_item_button.pressed.connect(_on_confirm_item_button_pressed)
+	root.add_child(_confirm_item_button)
+
 	_message_label = Label.new()
 	_message_label.position = Vector2(20, 907)
 	_message_label.custom_minimum_size = Vector2(680, 80)
@@ -126,9 +138,17 @@ func update_inventory(counts: Dictionary, item_defs: Dictionary) -> void:
 
 func set_selection_active(active: bool, item_name: String, item_id: StringName = &"") -> void:
 	_selected_item_id = item_id if active else &""
+	if _confirm_item_button:
+		_confirm_item_button.visible = active
+		_confirm_item_button.disabled = true
 	_refresh_inventory_buttons()
 	if active:
-		set_message("选择 %s 的目标格，再次点击道具、右键或 Esc 取消。" % item_name)
+		set_message("选择 %s 的目标格，再点击底部确认使用；再次点击道具、右键或 Esc 取消。" % item_name)
+
+
+func set_item_target_ready(ready: bool) -> void:
+	if _confirm_item_button:
+		_confirm_item_button.disabled = not ready
 
 
 func _refresh_inventory_buttons() -> void:
@@ -228,6 +248,10 @@ func _on_inventory_button_pressed(id: StringName) -> void:
 
 func _on_end_turn_button_pressed() -> void:
 	end_turn_requested.emit()
+
+
+func _on_confirm_item_button_pressed() -> void:
+	item_use_confirmed.emit()
 
 
 func _on_restart_button_pressed() -> void:

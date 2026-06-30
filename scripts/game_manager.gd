@@ -23,6 +23,8 @@ var unit_layer: Node2D
 var token_layer: Node2D
 var player: TacticalUnit
 var cat: TacticalUnit
+var item_preview_token: BoardToken
+var item_preview_effect: Node2D
 
 var level: LevelData
 var item_defs: Dictionary = {}
@@ -33,6 +35,7 @@ var trap_cells: Dictionary = {}
 var toy_cells: Dictionary = {}
 var ice_cells: Dictionary = {}
 var selected_item_id: StringName = &""
+var pending_item_target: Vector2i = Vector2i(-1, -1)
 var remaining_turns: int = 0
 var cat_stun_turns: int = 0
 var player_facing: StringName = &"down"
@@ -116,6 +119,7 @@ func _create_scene_nodes() -> void:
 	ui.build(item_defs)
 	ui.end_turn_requested.connect(_end_player_turn)
 	ui.item_selected.connect(_select_item)
+	ui.item_use_confirmed.connect(_confirm_selected_item_use)
 	ui.restart_requested.connect(_restart)
 	ui.back_requested.connect(_on_back_requested)
 	add_child(ui)
@@ -129,6 +133,8 @@ func _load_level(next_level: LevelData) -> void:
 	player_facing = &"down"
 	game_finished = false
 	selected_item_id = &""
+	pending_item_target = Vector2i(-1, -1)
+	_clear_item_preview()
 	board_items.clear()
 	toy_effect_nodes.clear()
 	trap_cells.clear()
@@ -210,7 +216,7 @@ func _on_cell_selected(cell: Vector2i) -> void:
 		return
 
 	if selected_item_id != &"":
-		_try_use_selected_item(cell)
+		_select_item_target(cell)
 		return
 
 	_try_move_player(cell)
@@ -281,10 +287,48 @@ func _select_item(id: StringName) -> void:
 		ui.set_message("AP 不足，不能使用 %s。" % item.display_name)
 		return
 
+	_clear_item_preview()
 	selected_item_id = id
+	pending_item_target = Vector2i(-1, -1)
 	var cells := _get_valid_item_targets(item)
 	grid.set_highlights(cells, ui_theme.ITEM_HIGHLIGHT)
 	ui.set_selection_active(true, item.display_name, id)
+
+
+func _select_item_target(cell: Vector2i) -> void:
+	if selected_item_id == &"":
+		return
+
+	var item := item_defs[selected_item_id] as ItemData
+	var valid_targets := _get_valid_item_targets(item)
+	if not valid_targets.has(cell):
+		pending_item_target = Vector2i(-1, -1)
+		_clear_item_preview()
+		ui.set_item_target_ready(false)
+		ui.set_message("这个格子不能放置/使用 %s。" % item.display_name)
+		return
+
+	if item.effect_type == ItemData.EffectType.NET and cell != cat.grid_position:
+		pending_item_target = Vector2i(-1, -1)
+		_clear_item_preview()
+		ui.set_item_target_ready(false)
+		ui.set_message("捕捉网只能捕获玩家朝向的前方一格。")
+		return
+
+	pending_item_target = cell
+	_show_item_preview(cell, item)
+	ui.set_item_target_ready(true)
+	ui.set_message("已选择 %s 的目标格 %s，点击底部确认使用。" % [item.display_name, str(cell)])
+
+
+func _confirm_selected_item_use() -> void:
+	if selected_item_id == &"":
+		return
+	if pending_item_target == Vector2i(-1, -1):
+		ui.set_message("先选择一个高亮目标格。")
+		return
+
+	_try_use_selected_item(pending_item_target)
 
 
 func _try_use_selected_item(cell: Vector2i) -> void:
@@ -309,6 +353,7 @@ func _try_use_selected_item(cell: Vector2i) -> void:
 		ui.set_message("背包数量不足。")
 		return
 
+	_clear_item_preview()
 	match item.effect_type:
 		ItemData.EffectType.WALL:
 			_place_wall(cell)
@@ -431,9 +476,13 @@ func _resolve_cat_cell_effects() -> void:
 
 func _finish_game(won: bool, sting_id: StringName = &"") -> void:
 	game_finished = true
+	selected_item_id = &""
+	pending_item_target = Vector2i(-1, -1)
+	_clear_item_preview()
 	grid.clear_highlights()
 	turn_system.set_phase(&"finished")
 	ui.update_status(action_system.current_ap, action_system.max_ap, turn_system.turn_number, remaining_turns, turn_system.phase)
+	ui.set_selection_active(false, "")
 	ui.show_result(won)
 	if sting_id != &"":
 		sting_requested.emit(sting_id)
@@ -456,6 +505,8 @@ func _on_back_requested() -> void:
 
 func _cancel_selection() -> void:
 	selected_item_id = &""
+	pending_item_target = Vector2i(-1, -1)
+	_clear_item_preview()
 	if ui:
 		ui.set_selection_active(false, "")
 		_check_pickup_hint()
@@ -741,6 +792,35 @@ func _add_board_token(cell: Vector2i, item: ItemData) -> void:
 	token.configure(item.id, item.short_label, item.color, cell, grid)
 	token_layer.add_child(token)
 	board_tokens[cell] = token
+
+
+func _show_item_preview(cell: Vector2i, item: ItemData) -> void:
+	_clear_item_preview()
+	var preview_item := item
+	if item.effect_type == ItemData.EffectType.WALL:
+		preview_item = item_defs[&"obstacle_wall"] as ItemData
+
+	item_preview_token = BoardToken.new()
+	item_preview_token.configure(preview_item.id, preview_item.short_label, preview_item.color, cell, grid)
+	item_preview_token.modulate = Color(1.0, 1.0, 1.0, 0.62)
+	item_preview_token.z_index = 30
+	token_layer.add_child(item_preview_token)
+
+	if item.effect_type == ItemData.EffectType.TOY:
+		item_preview_effect = ToyAttractionZone.new()
+		item_preview_effect.modulate = Color(1.0, 1.0, 1.0, 0.72)
+		item_preview_effect.z_index = 20
+		(item_preview_effect as ToyAttractionZone).configure(_get_toy_effect_cells(cell), grid)
+		effect_layer.add_child(item_preview_effect)
+
+
+func _clear_item_preview() -> void:
+	if item_preview_effect:
+		item_preview_effect.queue_free()
+		item_preview_effect = null
+	if item_preview_token:
+		item_preview_token.queue_free()
+		item_preview_token = null
 
 
 func _remove_board_token(cell: Vector2i) -> void:
