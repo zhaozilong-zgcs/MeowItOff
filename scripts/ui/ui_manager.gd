@@ -2,7 +2,6 @@ class_name UIManager
 extends CanvasLayer
 
 signal end_turn_requested
-signal pickup_requested
 signal item_selected(id: StringName)
 signal cancel_requested
 signal restart_requested
@@ -14,7 +13,6 @@ var _remaining_label: Label
 var _phase_label: Label
 var _message_label: Label
 var _inventory_box: HBoxContainer
-var _pickup_button: Button
 var _cancel_button: Button
 var _result_panel: PanelContainer
 var _result_label: Label
@@ -57,12 +55,6 @@ func build(item_defs: Dictionary) -> void:
 	var action_row := HBoxContainer.new()
 	action_row.add_theme_constant_override("separation", 10)
 	top_column.add_child(action_row)
-
-	_pickup_button = Button.new()
-	_pickup_button.text = "拾取"
-	_pickup_button.custom_minimum_size = Vector2(150, 42)
-	_pickup_button.pressed.connect(_on_pickup_button_pressed)
-	action_row.add_child(_pickup_button)
 
 	var end_turn_button := Button.new()
 	end_turn_button.text = "结束回合"
@@ -121,7 +113,7 @@ func build(item_defs: Dictionary) -> void:
 	restart_button.pressed.connect(_on_restart_button_pressed)
 	result_column.add_child(restart_button)
 
-	set_message("点击相邻格移动，站在道具上可拾取。")
+	set_message("点击相邻格移动，走到道具上会自动拾取。")
 	set_selection_active(false, "")
 
 
@@ -173,10 +165,6 @@ func _refresh_inventory_buttons() -> void:
 		ap_label.text = "%dAP" % item.ap_cost
 		button.disabled = count <= 0 or _current_ap < item.ap_cost
 		button.button_pressed = _selected_item_id == id
-
-
-func set_pickup_enabled(enabled: bool) -> void:
-	_pickup_button.disabled = not enabled
 
 
 func set_message(message: String) -> void:
@@ -248,10 +236,6 @@ func _make_inventory_button(item: ItemData) -> Button:
 
 func _on_inventory_button_pressed(id: StringName) -> void:
 	item_selected.emit(id)
-
-
-func _on_pickup_button_pressed() -> void:
-	pickup_requested.emit()
 
 
 func _on_end_turn_button_pressed() -> void:

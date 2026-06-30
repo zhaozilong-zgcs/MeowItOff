@@ -6,9 +6,11 @@ const COVER_PATH := "res://assets/cover.png"
 var current_view: Node
 var last_editor_level: LevelData
 var status_message: String = ""
+var audio: AudioManager
 
 
 func _ready() -> void:
+	_ensure_audio()
 	last_editor_level = LevelFactory.create_blank_level()
 	_show_home()
 
@@ -21,6 +23,7 @@ func _clear_view() -> void:
 
 func _show_home(message: String = "") -> void:
 	_clear_view()
+	_play_bgm(&"BGM_MENU")
 
 	var root := _make_fullscreen_root()
 	current_view = root
@@ -59,6 +62,7 @@ func _show_home(message: String = "") -> void:
 
 func _show_level_list() -> void:
 	_clear_view()
+	_play_bgm(&"BGM_MENU")
 
 	var root := _make_fullscreen_root()
 	current_view = root
@@ -94,6 +98,7 @@ func _show_level_list() -> void:
 
 func _show_editor() -> void:
 	_clear_view()
+	_play_bgm(&"BGM_EDITOR")
 
 	var editor := LevelEditorPage.new()
 	current_view = editor
@@ -105,11 +110,14 @@ func _show_editor() -> void:
 
 func _start_game(level: LevelData, return_mode: StringName) -> void:
 	_clear_view()
+	_play_bgm(&"BGM_PLAY_L1")
 
 	var game := GameManager.new()
 	current_view = game
 	add_child(game)
 	game.return_requested.connect(_on_game_return_requested)
+	game.music_requested.connect(_on_music_requested)
+	game.sting_requested.connect(_on_sting_requested)
 	game.start_level(level, return_mode)
 
 
@@ -132,6 +140,15 @@ func _on_game_return_requested(return_mode: StringName) -> void:
 			_show_level_list()
 		_:
 			_show_home()
+
+
+func _on_music_requested(track_id: StringName) -> void:
+	_play_bgm(track_id)
+
+
+func _on_sting_requested(sting_id: StringName) -> void:
+	if audio:
+		audio.play_sting(sting_id)
 
 
 func _open_import_dialog(root: Control) -> void:
@@ -200,6 +217,19 @@ func _make_button(text: String, callback: Callable, size: Vector2) -> Button:
 	button.custom_minimum_size = size
 	button.pressed.connect(callback)
 	return button
+
+
+func _ensure_audio() -> void:
+	if audio:
+		return
+
+	audio = AudioManager.new()
+	add_child(audio)
+
+
+func _play_bgm(track_id: StringName) -> void:
+	_ensure_audio()
+	audio.play_bgm(track_id)
 
 
 func _duplicate_level(source: LevelData) -> LevelData:

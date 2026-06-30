@@ -6,6 +6,8 @@ const MOVE_COST := 1
 const CATCH_COST := 3
 
 signal return_requested(return_mode: StringName)
+signal music_requested(track_id: StringName)
+signal sting_requested(sting_id: StringName)
 
 var grid: GridSystem
 var pathfinder: PathfindingSystem
@@ -109,7 +111,6 @@ func _create_scene_nodes() -> void:
 	ui = UIManager.new()
 	ui.build(item_defs)
 	ui.end_turn_requested.connect(_end_player_turn)
-	ui.pickup_requested.connect(_try_pickup_item)
 	ui.item_selected.connect(_select_item)
 	ui.cancel_requested.connect(_cancel_selection)
 	ui.restart_requested.connect(_restart)
@@ -118,6 +119,7 @@ func _create_scene_nodes() -> void:
 
 
 func _load_level(next_level: LevelData) -> void:
+	music_requested.emit(&"BGM_PLAY_L1")
 	level = next_level
 	remaining_turns = level.delay_turns
 	cat_stun_turns = 0
@@ -208,10 +210,7 @@ func _on_cell_selected(cell: Vector2i) -> void:
 		_try_use_selected_item(cell)
 		return
 
-	if cell == player.grid_position and board_items.has(cell):
-		_try_pickup_item()
-	else:
-		_try_move_player(cell)
+	_try_move_player(cell)
 
 
 func _try_move_player(cell: Vector2i) -> void:
@@ -235,15 +234,14 @@ func _try_move_player(cell: Vector2i) -> void:
 		ui.set_message("移动到 %s，消耗 %dAP。" % [str(cell), move_cost])
 	_refresh_unit_positions()
 	_cancel_selection()
-	_check_pickup_hint()
+	_try_auto_pickup_item()
 
 
-func _try_pickup_item() -> void:
+func _try_auto_pickup_item() -> void:
 	if game_finished or turn_system.phase != &"player":
 		return
 
 	if not board_items.has(player.grid_position):
-		ui.set_message("脚下没有可拾取道具。")
 		return
 
 	var entry := board_items[player.grid_position] as Dictionary
@@ -258,7 +256,6 @@ func _try_pickup_item() -> void:
 		_remove_toy_attraction_zone(player.grid_position)
 	_remove_board_token(player.grid_position)
 	ui.set_message("拾取了 %s x%d。" % [(item_defs[id] as ItemData).display_name, count])
-	_check_pickup_hint()
 
 
 func _select_item(id: StringName) -> void:
@@ -324,7 +321,7 @@ func _try_use_selected_item(cell: Vector2i) -> void:
 			ui.set_message("放置了陷阱，小猫踩中会停一回合。")
 		ItemData.EffectType.NET:
 			ui.set_message("捕捉网命中，小猫被抓住了！")
-			_finish_game(true)
+			_finish_game(true, &"STING_CATCH")
 			return
 		ItemData.EffectType.ICE:
 			ice_cells[cell] = true
@@ -384,6 +381,8 @@ func _run_cat_turn() -> void:
 	if remaining_turns <= 0:
 		_finish_game(true)
 		return
+	if remaining_turns <= 5:
+		music_requested.emit(&"BGM_TENSE")
 
 	turn_system.next_round()
 	action_system.reset_ap()
@@ -427,12 +426,18 @@ func _resolve_cat_cell_effects() -> void:
 		ui.set_message("小猫踩中陷阱，下一回合停住。")
 
 
-func _finish_game(won: bool) -> void:
+func _finish_game(won: bool, sting_id: StringName = &"") -> void:
 	game_finished = true
 	grid.clear_highlights()
 	turn_system.set_phase(&"finished")
 	ui.update_status(action_system.current_ap, action_system.max_ap, turn_system.turn_number, remaining_turns, turn_system.phase)
 	ui.show_result(won)
+	if sting_id != &"":
+		sting_requested.emit(sting_id)
+	elif won:
+		sting_requested.emit(&"STING_WIN")
+	else:
+		sting_requested.emit(&"STING_LOSE")
 
 
 func _restart() -> void:
@@ -724,11 +729,6 @@ func _add_board_item(cell: Vector2i, id: StringName, count: int) -> void:
 		return
 
 	board_items[cell] = {"id": id, "count": count}
-	if id == &"ice":
-		ice_cells[cell] = true
-	elif id == &"toy":
-		toy_cells[cell] = true
-		_add_toy_attraction_zone(cell)
 	_add_board_token(cell, item_defs[id] as ItemData)
 
 
@@ -795,11 +795,10 @@ func _check_pickup_hint() -> void:
 		return
 
 	var can_pickup := board_items.has(player.grid_position)
-	ui.set_pickup_enabled(can_pickup)
 	if can_pickup and selected_item_id == &"":
 		var entry := board_items[player.grid_position] as Dictionary
 		var id := entry["id"] as StringName
-		ui.set_message("脚下有 %s，点击拾取。" % (item_defs[id] as ItemData).display_name)
+		ui.set_message("脚下有 %s，移动结束后会自动拾取。" % (item_defs[id] as ItemData).display_name)
 
 
 func _on_inventory_changed(counts: Dictionary) -> void:
