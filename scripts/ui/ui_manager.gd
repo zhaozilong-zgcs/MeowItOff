@@ -146,9 +146,9 @@ func set_selection_active(active: bool, item_name: String, item_id: StringName =
 		set_message("选择 %s 的目标格，再点击底部确认使用；再次点击道具、右键或 Esc 取消。" % item_name)
 
 
-func set_item_target_ready(ready: bool) -> void:
+func set_item_target_ready(target_ready: bool) -> void:
 	if _confirm_item_button:
-		_confirm_item_button.disabled = not ready
+		_confirm_item_button.disabled = not target_ready
 
 
 func _refresh_inventory_buttons() -> void:

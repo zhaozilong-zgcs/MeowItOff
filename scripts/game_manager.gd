@@ -9,6 +9,7 @@ const CATCH_COST := 3
 signal return_requested(return_mode: StringName)
 signal music_requested(track_id: StringName)
 signal sting_requested(sting_id: StringName)
+signal level_completed
 
 var grid: GridSystem
 var pathfinder: PathfindingSystem
@@ -484,6 +485,8 @@ func _finish_game(won: bool, sting_id: StringName = &"") -> void:
 	ui.update_status(action_system.current_ap, action_system.max_ap, turn_system.turn_number, remaining_turns, turn_system.phase)
 	ui.set_selection_active(false, "")
 	ui.show_result(won)
+	if won:
+		level_completed.emit()
 	if sting_id != &"":
 		sting_requested.emit(sting_id)
 	elif won:
@@ -681,6 +684,10 @@ func _resolve_ice_slide(unit: TacticalUnit, direction: Vector2i, max_steps: int,
 		return 0
 	if not ice_cells.has(unit.grid_position):
 		return 0
+
+	var ice_cell := unit.grid_position
+	ice_cells.erase(ice_cell)
+	_remove_board_token(ice_cell)
 
 	var moved_steps := 0
 	for _step in range(max_steps):

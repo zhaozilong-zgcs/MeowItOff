@@ -4,10 +4,10 @@ extends Node
 const TRACK_PATHS := {
 	&"BGM_MENU": "res://assets/bgm/BGM_MENU.mp3",
 	&"BGM_PLAY_L1": "res://assets/bgm/BGM_PLAY_L1.mp3",
-	&"BGM_PLAY_L2": "res://assets/bgm/BGM_PLAY_L2.mp3",
-	&"BGM_PLAY_L3": "res://assets/bgm/BGM_PLAY_L3.mp3",
+	&"BGM_PLAY_L2": "res://assets/bgm/BGM_PLAY_L1.mp3",
+	&"BGM_PLAY_L3": "res://assets/bgm/BGM_PLAY_L1.mp3",
 	&"BGM_DARK": "res://assets/bgm/BGM_DARK.mp3",
-	&"BGM_TENSE": "res://assets/bgm/BGM_TENSE.mp3",
+	&"BGM_TENSE": "res://assets/bgm/BGM_DARK.mp3",
 	&"BGM_EDITOR": "res://assets/bgm/BGM_EDITOR.mp3",
 	&"STING_WIN": "res://assets/bgm/STING_WIN.mp3",
 	&"STING_LOSE": "res://assets/bgm/STING_LOSE.mp3",
